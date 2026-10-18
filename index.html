@@ -27,13 +27,16 @@
   .card svg { display: block; width: 100%; height: auto; border-radius: 18px; }
   .card .star { position: absolute; top: -6px; right: -6px; font-size: 34px; display: none; filter: drop-shadow(0 2px 1px rgba(0,0,0,.3)); }
   .card.done .star { display: block; }
+  #credits { max-width: 900px; margin: 40px auto 0; font-family: system-ui, sans-serif; font-size: 12px; color: #546e7a; }
+  #credits summary { cursor: pointer; }
+  #credits a { color: inherit; }
 
   /* Pusselsidan */
   #game { overflow: hidden; }
   .btn { position: absolute; border: none; border-radius: 50%; background: #fff; box-shadow: 0 5px 0 rgba(0,0,0,.18); cursor: pointer; font-size: 34px; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; z-index: 50; padding: 0; }
   .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 rgba(0,0,0,.18); }
   #homeBtn { top: 12px; left: 12px; }
-  #board { position: absolute; background: #fff; border-radius: 14px; box-shadow: 0 8px 0 rgba(0,0,0,.12); }
+  #board { position: absolute; cursor: pointer; background: #fff; border-radius: 14px; box-shadow: 0 8px 0 rgba(0,0,0,.12); }
   #board .guide { position: absolute; inset: 0; opacity: .22; border-radius: 14px; overflow: hidden; }
   #board .guide svg { width: 100%; height: 100%; display: block; }
   #board .slots { position: absolute; inset: 0; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); }
@@ -65,6 +68,7 @@
 <div id="home" class="screen active">
   <h1>Bilpussel</h1>
   <div id="cards"></div>
+  <details id="credits"><summary>Ljudkällor</summary><ul id="creditList"></ul></details>
 </div>
 
 <div id="game" class="screen">
@@ -183,23 +187,24 @@ function plopp() {
   g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
   o.connect(g).connect(a.destination); o.start(t); o.stop(t + 0.22);
 }
-function applause(seconds = 3.5) {
-  const a = audio(); if (!a) return;
-  const len = Math.floor(a.sampleRate * 0.05), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  const master = a.createGain(); master.gain.value = 0.7; master.connect(a.destination);
-  const t0 = a.currentTime;
-  const claps = Math.floor(seconds * 45);
-  for (let i = 0; i < claps; i++) {
-    const p = Math.random(), t = t0 + p * seconds;
-    const level = p < 0.15 ? p / 0.15 : (p > 0.7 ? (1 - p) / 0.3 : 1);
-    const src = a.createBufferSource(); src.buffer = buf;
-    const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900 + Math.random() * 1800; f.Q.value = 1.2;
-    const g = a.createGain();
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25 + 0.35 * level * Math.random() + 0.01, t + 0.003);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04 + Math.random() * 0.03);
-    src.connect(f).connect(g).connect(master); src.start(t); src.stop(t + 0.08);
-  }
+const sounds = {};
+let playing = null;
+function loadSound(id) {
+  const a = audio(); if (!a || sounds[id]) return;
+  sounds[id] = fetch('sounds/' + id + '.mp3').then(r => r.arrayBuffer())
+    .then(b => new Promise((ok, err) => a.decodeAudioData(b, ok, err))).catch(() => null);
+}
+function stopSound() {
+  if (playing) { try { playing.stop(); } catch (e) {} playing = null; }
+}
+async function playSound(id) {
+  const a = audio(); if (!a) return 0;
+  loadSound(id);
+  const buf = await sounds[id]; if (!buf) return 0;
+  stopSound();
+  const src = a.createBufferSource(); src.buffer = buf; src.connect(a.destination); src.start();
+  playing = src; src.onended = () => { if (playing === src) playing = null; };
+  return buf.duration;
 }
 function say(text) {
   try {
@@ -258,6 +263,7 @@ let current = 0, pieces = [], L = null, finished = false;
 
 function startPuzzle(i) {
   current = i; finished = false;
+  stopSound(); loadSound(VEHICLES[i].id);
   const v = VEHICLES[i];
   pieces.forEach(p => p.el.remove());
   board.classList.remove('complete', 'celebrate');
@@ -360,20 +366,32 @@ function win() {
   done.add(v.id); localStorage.setItem('bilpussel-klara', JSON.stringify([...done]));
   setTimeout(() => {
     board.classList.add('complete');
-    applause(); confetti();
-    setTimeout(() => say('Bra jobbat! ' + v.name + '!'), 600);
+    confetti();
+    playSound(v.id).then(d => setTimeout(() => { if (finished && VEHICLES[current] === v) say('Bra jobbat! ' + v.name + '!'); }, d * 1000 + 300));
     pieces.forEach(p => p.el.classList.add('hidden'));
     board.classList.add('celebrate');
     setTimeout(() => doneBar.classList.add('show'), 1200);
   }, 380);
 }
 
-document.getElementById('homeBtn').addEventListener('click', () => { renderHome(); show('home'); });
+board.addEventListener('click', () => { if (finished) playSound(VEHICLES[current].id); });
+document.getElementById('homeBtn').addEventListener('click', () => { stopSound(); if ('speechSynthesis' in window) speechSynthesis.cancel(); renderHome(); show('home'); });
 document.getElementById('againBtn').addEventListener('click', () => startPuzzle(current));
 document.getElementById('nextBtn').addEventListener('click', () => { const n = (current + 1) % VEHICLES.length; say(VEHICLES[n].name); startPuzzle(n); });
 addEventListener('resize', () => { if (pieces.length) layout(); });
 document.addEventListener('gesturestart', e => e.preventDefault());
 if ('speechSynthesis' in window) speechSynthesis.getVoices();
+const CREDITS = [
+  ['Brandbil', 'WWS Firetruck', 'Work With Sounds / Werstas', 'CC BY 4.0', 'https://commons.wikimedia.org/wiki/File:WWS_Firetruck.ogg'],
+  ['Polisbil', 'American police siren i', 'lezer', 'Public domain', 'https://commons.wikimedia.org/wiki/File:American_police_siren_i.ogg'],
+  ['Traktor', 'WWS TractorUrsusC328engine', 'Work With Sounds / Museum of Municipal Engineering', 'CC BY 4.0', 'https://commons.wikimedia.org/wiki/File:WWS_TractorUrsusC328engine.ogg'],
+  ['Grävmaskin', 'A small orange excavator shoveling gravel', 'T.Voekler', 'CC BY-SA 3.0', 'https://commons.wikimedia.org/wiki/File:A_small_orange_excavator_shoveling_gravel.ogg'],
+  ['Lastbil', 'WWS FSRTarpan239Dvanstarting', 'Work With Sounds / Museum of Municipal Engineering', 'CC BY 4.0', 'https://commons.wikimedia.org/wiki/File:WWS_FSRTarpan239Dvanstarting.ogg'],
+  ['Lastbil, Buss', 'Car Horn', '15HPanska_Ruttner_Jan', 'CC0', 'https://commons.wikimedia.org/wiki/File:Car_Horn.wav'],
+  ['Buss', 'WWS CityBusMANSG220dooropeningclosing', 'Work With Sounds / Technical Museum of Slovenia', 'CC BY 4.0', 'https://commons.wikimedia.org/wiki/File:WWS_CityBusMANSG220dooropeningclosing.ogg'],
+];
+document.getElementById('creditList').innerHTML = CREDITS.map(([v, t, a, l, u]) =>
+  `<li>${v}: <a href="${u}" target="_blank" rel="noopener">${t}</a> av ${a} (${l}). Klippt och volymjusterat.</li>`).join('');
 renderHome();
 </script>
 </body>
