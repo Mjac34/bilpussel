@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#4fc3f7">
+<title>Bilpussel</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: "Comic Sans MS", "Chalkboard SE", "Trebuchet MS", system-ui, sans-serif;
+    background: linear-gradient(#b3e5fc, #e1f5fe);
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+  .screen { position: fixed; inset: 0; display: none; }
+  .screen.active { display: block; }
+
+  /* Startsida */
+  #home { overflow-y: auto; touch-action: pan-y; padding: 16px 16px 40px; }
+  #home h1 { text-align: center; margin: 8px 0 16px; font-size: clamp(32px, 7vw, 56px); color: #e53935; text-shadow: 3px 3px 0 #fff; letter-spacing: 2px; }
+  #cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px; max-width: 900px; margin: 0 auto; }
+  .card { position: relative; background: #fff; border-radius: 24px; padding: 8px; box-shadow: 0 6px 0 rgba(0,0,0,.15); cursor: pointer; transition: transform .15s; border: none; }
+  .card:active { transform: scale(.95); }
+  .card svg { display: block; width: 100%; height: auto; border-radius: 18px; }
+  .card .star { position: absolute; top: -6px; right: -6px; font-size: 34px; display: none; filter: drop-shadow(0 2px 1px rgba(0,0,0,.3)); }
+  .card.done .star { display: block; }
+
+  /* Pusselsidan */
+  #game { overflow: hidden; }
+  .btn { position: absolute; border: none; border-radius: 50%; background: #fff; box-shadow: 0 5px 0 rgba(0,0,0,.18); cursor: pointer; font-size: 34px; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; z-index: 50; padding: 0; }
+  .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 rgba(0,0,0,.18); }
+  #homeBtn { top: 12px; left: 12px; }
+  #board { position: absolute; background: #fff; border-radius: 14px; box-shadow: 0 8px 0 rgba(0,0,0,.12); }
+  #board .guide { position: absolute; inset: 0; opacity: .22; border-radius: 14px; overflow: hidden; }
+  #board .guide svg { width: 100%; height: 100%; display: block; }
+  #board .slots { position: absolute; inset: 0; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); }
+  #board .slots div { border: 2px dashed rgba(0,0,0,.18); }
+  #board.complete .slots { display: none; }
+  #board.complete .guide { opacity: 1; }
+  .piece.hidden { visibility: hidden; }
+  .piece { position: absolute; transform-origin: center; transition: left .35s ease, top .35s ease, transform .35s ease; cursor: grab; z-index: 10; touch-action: none; }
+  .piece svg { display: block; width: 100%; height: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,.3); pointer-events: none; }
+  .piece.dragging { transition: transform .15s ease; z-index: 100; cursor: grabbing; }
+  .piece.dragging svg { box-shadow: 0 14px 20px rgba(0,0,0,.35); }
+  .piece.placed { cursor: default; z-index: 5; }
+  .piece.placed svg { box-shadow: none; border-radius: 0; }
+  .celebrate { animation: hop .6s ease 3; }
+  @keyframes hop { 0%,100% { transform: translateY(0); } 40% { transform: translateY(-30px) scale(1.04); } }
+
+  #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 200; }
+  #doneBar { position: absolute; left: 0; right: 0; bottom: 24px; display: none; justify-content: center; gap: 28px; z-index: 210; }
+  #doneBar.show { display: flex; animation: pop .4s ease; }
+  #doneBar button { position: static; width: 110px; height: 110px; font-size: 60px; }
+  #nextBtn { background: #66bb6a !important; color: #fff; }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+</style>
+</head>
+<body>
+
+<svg id="defs" width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="symbols"></defs></svg>
+
+<div id="home" class="screen active">
+  <h1>Bilpussel</h1>
+  <div id="cards"></div>
+</div>
+
+<div id="game" class="screen">
+  <button class="btn" id="homeBtn" aria-label="Hem"><svg viewBox="0 0 24 24" width="60%" height="60%"><path d="M3 11 12 3l9 8v10h-6v-6H9v6H3z" fill="#e53935"/></svg></button>
+  <div id="board"><div class="guide"></div><div class="slots"></div></div>
+  <div id="doneBar">
+    <button class="btn" id="againBtn" aria-label="Igen"><svg viewBox="0 0 24 24" width="60%" height="60%"><path d="M12 4a8 8 0 1 0 8 8h-3a5 5 0 1 1-5-5v3l5-4.5L12 1z" fill="#1e88e5"/></svg></button>
+    <button class="btn" id="nextBtn" aria-label="Nästa"><svg viewBox="0 0 24 24" width="60%" height="60%"><path d="M4 10h10V5l8 7-8 7v-5H4z" fill="#fff"/></svg></button>
+  </div>
+</div>
+
+<canvas id="confetti"></canvas>
+
+<script>
+// ---------- Bilder (egenritade SVG, 300x300) ----------
+const wheel = (cx, cy, r, hub = '#bdbdbd') =>
+  `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#263238"/><circle cx="${cx}" cy="${cy}" r="${r * 0.45}" fill="${hub}"/><circle cx="${cx}" cy="${cy}" r="${r * 0.15}" fill="#455a64"/>`;
+
+const bg = (sky, grass = '#7cb342') => `
+  <rect width="300" height="300" fill="${sky}"/>
+  <circle cx="262" cy="40" r="26" fill="#ffeb3b"/>
+  <g fill="#fff"><circle cx="55" cy="45" r="16"/><circle cx="75" cy="38" r="20"/><circle cx="97" cy="47" r="15"/><rect x="55" y="45" width="42" height="16"/></g>
+  <rect y="205" width="300" height="95" fill="${grass}"/>
+  <rect y="240" width="300" height="60" fill="#757575"/>
+  <g fill="#fff"><rect x="10" y="280" width="40" height="7" rx="3"/><rect x="90" y="280" width="40" height="7" rx="3"/><rect x="170" y="280" width="40" height="7" rx="3"/><rect x="250" y="280" width="40" height="7" rx="3"/></g>`;
+
+const VEHICLES = [
+  { id: 'brandbil', name: 'Brandbil', svg: bg('#81d4fa') + `
+    <rect x="25" y="145" width="185" height="85" rx="8" fill="#e53935"/>
+    <rect x="198" y="118" width="78" height="112" rx="14" fill="#e53935"/>
+    <rect x="213" y="132" width="50" height="38" rx="7" fill="#bbdefb"/>
+    <rect x="225" y="104" width="26" height="16" rx="6" fill="#2196f3"/>
+    <rect x="60" y="128" width="10" height="18" fill="#9e9e9e"/><rect x="160" y="128" width="10" height="18" fill="#9e9e9e"/>
+    <g fill="#eceff1" stroke="#90a4ae" stroke-width="2"><rect x="28" y="116" width="170" height="14" rx="3"/></g>
+    <g stroke="#90a4ae" stroke-width="3"><line x1="50" y1="116" x2="50" y2="130"/><line x1="75" y1="116" x2="75" y2="130"/><line x1="100" y1="116" x2="100" y2="130"/><line x1="125" y1="116" x2="125" y2="130"/><line x1="150" y1="116" x2="150" y2="130"/><line x1="175" y1="116" x2="175" y2="130"/></g>
+    <rect x="25" y="196" width="251" height="10" fill="#fff"/>
+    <circle cx="85" cy="172" r="17" fill="#ffeb3b" stroke="#5d4037" stroke-width="4"/><circle cx="85" cy="172" r="5" fill="#5d4037"/>
+    <rect x="120" y="155" width="70" height="35" rx="5" fill="#c62828"/>
+    <circle cx="270" cy="185" r="7" fill="#fff59d"/>
+    <rect x="266" y="210" width="16" height="14" rx="3" fill="#bdbdbd"/>
+    ${wheel(75, 236, 26)}${wheel(232, 236, 26)}` },
+
+  { id: 'polisbil', name: 'Polisbil', svg: bg('#b3e5fc') + `
+    <path d="M78 162 L112 112 H198 L238 162 Z" fill="#fff" stroke="#0d47a1" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M94 160 L118 124 H150 V160 Z" fill="#bbdefb"/><path d="M160 160 V124 H193 L220 160 Z" fill="#bbdefb"/>
+    <rect x="26" y="158" width="250" height="68" rx="22" fill="#fff" stroke="#0d47a1" stroke-width="4"/>
+    <rect x="28" y="182" width="246" height="20" fill="#1565c0"/>
+    <text x="150" y="198" font-size="17" font-weight="bold" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif">POLIS</text>
+    <rect x="132" y="97" width="18" height="15" rx="4" fill="#2196f3"/><rect x="150" y="97" width="18" height="15" rx="4" fill="#f44336"/>
+    <circle cx="264" cy="175" r="7" fill="#fff59d"/><rect x="26" y="172" width="10" height="8" rx="2" fill="#ef5350"/>
+    ${wheel(85, 236, 25)}${wheel(218, 236, 25)}` },
+
+  { id: 'traktor', name: 'Traktor', svg: bg('#90caf9', '#9ccc65') + `
+    <rect x="150" y="148" width="112" height="60" rx="10" fill="#43a047"/>
+    <g stroke="#2e7d32" stroke-width="4"><line x1="245" y1="158" x2="245" y2="198"/><line x1="232" y1="158" x2="232" y2="198"/></g>
+    <rect x="225" y="105" width="11" height="45" rx="3" fill="#424242"/>
+    <rect x="68" y="88" width="92" height="125" rx="8" fill="#43a047"/>
+    <rect x="60" y="78" width="108" height="14" rx="5" fill="#1b5e20"/>
+    <rect x="83" y="102" width="62" height="56" rx="6" fill="#bbdefb"/>
+    <circle cx="258" cy="168" r="6" fill="#fff59d"/>
+    ${wheel(100, 214, 46, '#fdd835')}${wheel(236, 234, 26, '#fdd835')}` },
+
+  { id: 'gravmaskin', name: 'Grävmaskin', svg: bg('#81d4fa', '#a1887f') + `
+    <line x1="150" y1="175" x2="212" y2="82" stroke="#f9a825" stroke-width="20" stroke-linecap="round"/>
+    <line x1="212" y1="82" x2="262" y2="168" stroke="#fbc02d" stroke-width="15" stroke-linecap="round"/>
+    <path d="M246 160 Q292 158 288 205 L252 200 Z" fill="#616161"/>
+    <g fill="#424242"><polygon points="252,200 258,212 262,201"/><polygon points="266,202 272,214 276,203"/><polygon points="280,204 284,214 288,205"/></g>
+    <circle cx="212" cy="82" r="8" fill="#424242"/><circle cx="262" cy="168" r="7" fill="#424242"/>
+    <rect x="30" y="162" width="155" height="50" rx="8" fill="#fbc02d"/>
+    <rect x="38" y="100" width="74" height="68" rx="8" fill="#fbc02d"/>
+    <rect x="50" y="110" width="50" height="42" rx="5" fill="#bbdefb"/>
+    <rect x="30" y="196" width="155" height="8" fill="#212121"/>
+    <rect x="22" y="214" width="180" height="46" rx="23" fill="#424242"/>
+    <g fill="#9e9e9e"><circle cx="46" cy="237" r="13"/><circle cx="82" cy="237" r="11"/><circle cx="114" cy="237" r="11"/><circle cx="146" cy="237" r="11"/><circle cx="178" cy="237" r="13"/></g>` },
+
+  { id: 'lastbil', name: 'Lastbil', svg: bg('#b3e5fc') + `
+    <rect x="22" y="200" width="258" height="18" fill="#424242"/>
+    <path d="M38 130 Q112 80 188 130 Z" fill="#8d6e63"/>
+    <g fill="#6d4c41"><circle cx="80" cy="118" r="9"/><circle cx="120" cy="108" r="11"/><circle cx="155" cy="120" r="8"/></g>
+    <path d="M24 128 L196 128 L186 202 L34 202 Z" fill="#ef6c00"/>
+    <g stroke="#e65100" stroke-width="5"><line x1="70" y1="132" x2="74" y2="198"/><line x1="110" y1="132" x2="110" y2="198"/><line x1="150" y1="132" x2="146" y2="198"/></g>
+    <rect x="200" y="118" width="76" height="98" rx="14" fill="#fb8c00"/>
+    <rect x="214" y="132" width="50" height="40" rx="7" fill="#bbdefb"/>
+    <circle cx="270" cy="190" r="7" fill="#fff59d"/>
+    ${wheel(65, 236, 24)}${wheel(140, 236, 24)}${wheel(236, 236, 24)}` },
+
+  { id: 'buss', name: 'Buss', svg: bg('#81d4fa', '#8bc34a') + `
+    <rect x="18" y="104" width="264" height="124" rx="20" fill="#1e88e5"/>
+    <g fill="#bbdefb"><rect x="32" y="120" width="40" height="45" rx="6"/><rect x="82" y="120" width="40" height="45" rx="6"/><rect x="132" y="120" width="40" height="45" rx="6"/>
+    <rect x="228" y="120" width="44" height="60" rx="8"/></g>
+    <rect x="184" y="120" width="34" height="100" rx="5" fill="#bbdefb" stroke="#1565c0" stroke-width="3"/>
+    <line x1="201" y1="120" x2="201" y2="220" stroke="#1565c0" stroke-width="3"/>
+    <rect x="18" y="182" width="166" height="10" fill="#fff"/>
+    <rect x="200" y="92" width="70" height="14" rx="4" fill="#212121"/>
+    <text x="235" y="103" font-size="11" text-anchor="middle" fill="#ffca28" font-family="Arial, sans-serif" font-weight="bold">BUSS</text>
+    <circle cx="272" cy="200" r="7" fill="#fff59d"/>
+    ${wheel(70, 236, 25)}${wheel(240, 236, 25)}` },
+];
+
+const symbols = document.getElementById('symbols');
+symbols.innerHTML = VEHICLES.map(v => `<symbol id="v-${v.id}" viewBox="0 0 300 300">${v.svg}</symbol>`).join('');
+const useSvg = (id, vb = '0 0 300 300') =>
+  `<svg viewBox="${vb}" preserveAspectRatio="none"><use href="#v-${id}" width="300" height="300"/></svg>`;
+
+// ---------- Ljud ----------
+let actx = null;
+function audio() {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (actx && actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function plopp() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = a.createOscillator(), g = a.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(500, t); o.frequency.exponentialRampToValueAtTime(1100, t + 0.12);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t + 0.22);
+}
+function applause(seconds = 3.5) {
+  const a = audio(); if (!a) return;
+  const len = Math.floor(a.sampleRate * 0.05), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const master = a.createGain(); master.gain.value = 0.7; master.connect(a.destination);
+  const t0 = a.currentTime;
+  const claps = Math.floor(seconds * 45);
+  for (let i = 0; i < claps; i++) {
+    const p = Math.random(), t = t0 + p * seconds;
+    const level = p < 0.15 ? p / 0.15 : (p > 0.7 ? (1 - p) / 0.3 : 1);
+    const src = a.createBufferSource(); src.buffer = buf;
+    const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900 + Math.random() * 1800; f.Q.value = 1.2;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25 + 0.35 * level * Math.random() + 0.01, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04 + Math.random() * 0.03);
+    src.connect(f).connect(g).connect(master); src.start(t); src.stop(t + 0.08);
+  }
+}
+function say(text) {
+  try {
+    if (!('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'sv-SE'; u.rate = 0.9; u.pitch = 1.2;
+    const sv = speechSynthesis.getVoices().find(v => v.lang && v.lang.toLowerCase().startsWith('sv'));
+    if (sv) u.voice = sv;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+
+// ---------- Konfetti ----------
+const cv = document.getElementById('confetti'), cx = cv.getContext('2d');
+let parts = [], confettiOn = false;
+function confetti() {
+  cv.width = innerWidth; cv.height = innerHeight;
+  const colors = ['#e53935', '#fdd835', '#43a047', '#1e88e5', '#fb8c00', '#ab47bc'];
+  for (let i = 0; i < 160; i++) parts.push({
+    x: Math.random() * cv.width, y: -20 - Math.random() * cv.height * 0.5,
+    vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 4, s: 8 + Math.random() * 8,
+    r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, c: colors[i % colors.length] });
+  if (!confettiOn) { confettiOn = true; requestAnimationFrame(tick); }
+}
+function tick() {
+  cx.clearRect(0, 0, cv.width, cv.height);
+  parts.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.r += p.vr;
+    cx.save(); cx.translate(p.x, p.y); cx.rotate(p.r); cx.fillStyle = p.c; cx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); cx.restore(); });
+  parts = parts.filter(p => p.y < cv.height + 30);
+  if (parts.length) requestAnimationFrame(tick); else { confettiOn = false; cx.clearRect(0, 0, cv.width, cv.height); }
+}
+
+// ---------- Startsida ----------
+const done = new Set(JSON.parse(localStorage.getItem('bilpussel-klara') || '[]'));
+const cards = document.getElementById('cards');
+function renderHome() {
+  cards.innerHTML = '';
+  VEHICLES.forEach((v, i) => {
+    const b = document.createElement('button');
+    b.className = 'card' + (done.has(v.id) ? ' done' : '');
+    b.setAttribute('aria-label', v.name);
+    b.innerHTML = useSvg(v.id) + '<span class="star"><svg viewBox=\"0 0 24 24\" width=\"40\" height=\"40\"><path d=\"m12 2 3 7h7l-5.5 4.5 2 7.5L12 17l-6.5 4 2-7.5L2 9h7z\" fill=\"#fdd835\" stroke=\"#f57f17\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/></svg></span>';
+    b.addEventListener('click', () => { audio(); say(v.name); startPuzzle(i); });
+    cards.appendChild(b);
+  });
+}
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+}
+
+// ---------- Pussel ----------
+const game = document.getElementById('game'), board = document.getElementById('board');
+const doneBar = document.getElementById('doneBar');
+board.querySelector('.slots').innerHTML = '<div></div>'.repeat(9);
+let current = 0, pieces = [], L = null, finished = false;
+
+function startPuzzle(i) {
+  current = i; finished = false;
+  const v = VEHICLES[i];
+  pieces.forEach(p => p.el.remove());
+  board.classList.remove('complete', 'celebrate');
+  doneBar.classList.remove('show');
+  board.querySelector('.guide').innerHTML = useSvg(v.id);
+  const order = [...Array(9).keys()].sort(() => Math.random() - 0.5);
+  pieces = [...Array(9).keys()].map((n, k) => {
+    const r = Math.floor(n / 3), c = n % 3;
+    const el = document.createElement('div');
+    el.className = 'piece';
+    el.innerHTML = useSvg(v.id, `${c * 100} ${r * 100} 100 100`);
+    game.appendChild(el);
+    const p = { el, r, c, placed: false, tray: order[k], tilt: (Math.random() - 0.5) * 16 };
+    el.addEventListener('pointerdown', e => grab(e, p));
+    return p;
+  });
+  show('game');
+  layout();
+}
+
+function layout() {
+  const W = innerWidth, H = innerHeight, top = 84, pad = 16;
+  let S, bx, by, tray;
+  if (W >= H) {
+    S = Math.min(H - top - pad, W * 0.52);
+    bx = pad + Math.max(0, (W * 0.55 - S) / 2); by = top + Math.max(0, (H - top - pad - S) / 2);
+    tray = { x: bx + S + pad * 2, y: top - 40, w: W - (bx + S + pad * 3), h: H - top + 40 - pad };
+  } else {
+    S = Math.min(W - pad * 2, (H - top) * 0.55);
+    bx = (W - S) / 2; by = top;
+    tray = { x: pad, y: by + S + pad * 1.5, w: W - pad * 2, h: H - (by + S + pad * 2.5) };
+  }
+  const p = S / 3;
+  let best = { k: 0 };
+  for (let cols = 2; cols <= 9; cols++) {
+    const rows = Math.ceil(9 / cols), cell = Math.min(tray.w / cols, tray.h / rows);
+    const k = Math.min(1, (cell * 0.86) / p);
+    if (k > best.k) best = { k, cols, rows, cell };
+  }
+  L = { S, bx, by, p, tray, ...best };
+  Object.assign(board.style, { left: bx + 'px', top: by + 'px', width: S + 'px', height: S + 'px' });
+  pieces.forEach(pc => { pc.el.style.width = pc.el.style.height = p + 'px'; place(pc); });
+}
+
+function trayPos(pc) {
+  const { tray, cols, rows, cell, p } = L;
+  const col = pc.tray % cols, row = Math.floor(pc.tray / cols);
+  const gx = tray.x + (tray.w - cols * cell) / 2, gy = tray.y + (tray.h - rows * cell) / 2;
+  return { x: gx + col * cell + cell / 2 - p / 2, y: gy + row * cell + cell / 2 - p / 2 };
+}
+function place(pc) {
+  if (pc.placed) {
+    pc.el.style.left = L.bx + pc.c * L.p + 'px'; pc.el.style.top = L.by + pc.r * L.p + 'px';
+    pc.el.style.transform = 'none';
+  } else {
+    const t = trayPos(pc);
+    pc.el.style.left = t.x + 'px'; pc.el.style.top = t.y + 'px';
+    pc.el.style.transform = `scale(${L.k}) rotate(${pc.tilt}deg)`;
+  }
+}
+
+let drag = null;
+function grab(e, pc) {
+  if (pc.placed || finished || drag) return;
+  e.preventDefault(); audio();
+  pc.el.setPointerCapture(e.pointerId);
+  pc.el.classList.add('dragging');
+  pc.el.style.transform = 'scale(1.08)';
+  drag = { pc, id: e.pointerId };
+  move(e);
+  pc.el.addEventListener('pointermove', move);
+  pc.el.addEventListener('pointerup', drop);
+  pc.el.addEventListener('pointercancel', drop);
+}
+function move(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  drag.pc.el.style.left = e.clientX - L.p / 2 + 'px';
+  drag.pc.el.style.top = e.clientY - L.p * 0.6 + 'px';
+}
+function drop(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const pc = drag.pc, el = pc.el;
+  el.removeEventListener('pointermove', move);
+  el.removeEventListener('pointerup', drop);
+  el.removeEventListener('pointercancel', drop);
+  el.classList.remove('dragging');
+  drag = null;
+  const cxp = parseFloat(el.style.left) + L.p / 2, cyp = parseFloat(el.style.top) + L.p / 2;
+  const tx = L.bx + pc.c * L.p + L.p / 2, ty = L.by + pc.r * L.p + L.p / 2;
+  if (Math.hypot(cxp - tx, cyp - ty) < L.p * 0.6) {
+    pc.placed = true; el.classList.add('placed'); plopp();
+  }
+  place(pc);
+  if (pieces.every(p => p.placed)) win();
+}
+
+function win() {
+  finished = true;
+  const v = VEHICLES[current];
+  done.add(v.id); localStorage.setItem('bilpussel-klara', JSON.stringify([...done]));
+  setTimeout(() => {
+    board.classList.add('complete');
+    applause(); confetti();
+    setTimeout(() => say('Bra jobbat! ' + v.name + '!'), 600);
+    pieces.forEach(p => p.el.classList.add('hidden'));
+    board.classList.add('celebrate');
+    setTimeout(() => doneBar.classList.add('show'), 1200);
+  }, 380);
+}
+
+document.getElementById('homeBtn').addEventListener('click', () => { renderHome(); show('home'); });
+document.getElementById('againBtn').addEventListener('click', () => startPuzzle(current));
+document.getElementById('nextBtn').addEventListener('click', () => { const n = (current + 1) % VEHICLES.length; say(VEHICLES[n].name); startPuzzle(n); });
+addEventListener('resize', () => { if (pieces.length) layout(); });
+document.addEventListener('gesturestart', e => e.preventDefault());
+if ('speechSynthesis' in window) speechSynthesis.getVoices();
+renderHome();
+</script>
+</body>
+</html>
