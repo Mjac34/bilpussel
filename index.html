@@ -27,6 +27,10 @@
   .card svg { display: block; width: 100%; height: auto; border-radius: 18px; }
   .card .star { position: absolute; top: -6px; right: -6px; font-size: 34px; display: none; filter: drop-shadow(0 2px 1px rgba(0,0,0,.3)); }
   .card.done .star { display: block; }
+  .mode { display: flex; justify-content: center; gap: 18px; margin: 0 0 20px; }
+  .mode button { width: 84px; height: 84px; border-radius: 20px; border: 5px solid transparent; background: #fff; box-shadow: 0 5px 0 rgba(0,0,0,.15); padding: 10px; cursor: pointer; opacity: .55; }
+  .mode button.on { border-color: #43a047; opacity: 1; }
+  .mode svg { width: 100%; height: 100%; display: block; }
   #credits { max-width: 900px; margin: 40px auto 0; font-family: system-ui, sans-serif; font-size: 12px; color: #546e7a; }
   #credits summary { cursor: pointer; }
   #credits a { color: inherit; }
@@ -39,8 +43,10 @@
   #board { position: absolute; cursor: pointer; background: #fff; border-radius: 14px; box-shadow: 0 8px 0 rgba(0,0,0,.12); }
   #board .guide { position: absolute; inset: 0; opacity: .22; border-radius: 14px; overflow: hidden; }
   #board .guide svg { width: 100%; height: 100%; display: block; }
-  #board .slots { position: absolute; inset: 0; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); }
+  #board .slots { position: absolute; inset: 0; display: grid; grid-template: repeat(var(--n, 3), 1fr) / repeat(var(--n, 3), 1fr); }
   #board .slots div { border: 2px dashed rgba(0,0,0,.18); }
+  #board .slots div.target { background: rgba(255, 235, 59, .6); border: 5px solid #fbc02d; animation: glow .6s ease-in-out infinite alternate; }
+  @keyframes glow { from { background: rgba(255, 235, 59, .25); } to { background: rgba(255, 235, 59, .75); } }
   #board.complete .slots { display: none; }
   #board.complete .guide { opacity: 1; }
   .piece.hidden { visibility: hidden; }
@@ -67,6 +73,7 @@
 
 <div id="home" class="screen active">
   <h1>Bilpussel</h1>
+  <div class="mode" id="mode"></div>
   <div id="cards"></div>
   <details id="credits"><summary>Ljudkällor</summary><ul id="creditList"></ul></details>
 </div>
@@ -258,7 +265,22 @@ function show(id) {
 // ---------- Pussel ----------
 const game = document.getElementById('game'), board = document.getElementById('board');
 const doneBar = document.getElementById('doneBar');
-board.querySelector('.slots').innerHTML = '<div></div>'.repeat(9);
+const slotsEl = board.querySelector('.slots');
+let N = +localStorage.getItem('bilpussel-bitar') || 2;
+function renderMode() {
+  const grid = n => `<svg viewBox="0 0 ${n * 10} ${n * 10}">${[...Array(n * n).keys()].map(i =>
+    `<rect x="${(i % n) * 10 + 1}" y="${Math.floor(i / n) * 10 + 1}" width="8" height="8" rx="1.5" fill="${['#e53935', '#1e88e5', '#fdd835', '#43a047'][i % 4]}"/>`).join('')}</svg>`;
+  const m = document.getElementById('mode');
+  m.innerHTML = '';
+  [2, 3].forEach(n => {
+    const b = document.createElement('button');
+    b.className = n === N ? 'on' : '';
+    b.setAttribute('aria-label', n * n + ' bitar');
+    b.innerHTML = grid(n);
+    b.addEventListener('click', () => { N = n; localStorage.setItem('bilpussel-bitar', n); renderMode(); });
+    m.appendChild(b);
+  });
+}
 let current = 0, pieces = [], L = null, finished = false;
 
 function startPuzzle(i) {
@@ -269,12 +291,15 @@ function startPuzzle(i) {
   board.classList.remove('complete', 'celebrate');
   doneBar.classList.remove('show');
   board.querySelector('.guide').innerHTML = useSvg(v.id);
-  const order = [...Array(9).keys()].sort(() => Math.random() - 0.5);
-  pieces = [...Array(9).keys()].map((n, k) => {
-    const r = Math.floor(n / 3), c = n % 3;
+  board.style.setProperty('--n', N);
+  slotsEl.innerHTML = '<div></div>'.repeat(N * N);
+  const size = 300 / N;
+  const order = [...Array(N * N).keys()].sort(() => Math.random() - 0.5);
+  pieces = [...Array(N * N).keys()].map((n, k) => {
+    const r = Math.floor(n / N), c = n % N;
     const el = document.createElement('div');
     el.className = 'piece';
-    el.innerHTML = useSvg(v.id, `${c * 100} ${r * 100} 100 100`);
+    el.innerHTML = useSvg(v.id, `${c * size} ${r * size} ${size} ${size}`);
     game.appendChild(el);
     const p = { el, r, c, placed: false, tray: order[k], tilt: (Math.random() - 0.5) * 16 };
     el.addEventListener('pointerdown', e => grab(e, p));
@@ -296,10 +321,10 @@ function layout() {
     bx = (W - S) / 2; by = top;
     tray = { x: pad, y: by + S + pad * 1.5, w: W - pad * 2, h: H - (by + S + pad * 2.5) };
   }
-  const p = S / 3;
+  const p = S / N, count = N * N;
   let best = { k: 0 };
-  for (let cols = 2; cols <= 9; cols++) {
-    const rows = Math.ceil(9 / cols), cell = Math.min(tray.w / cols, tray.h / rows);
+  for (let cols = 1; cols <= count; cols++) {
+    const rows = Math.ceil(count / cols), cell = Math.min(tray.w / cols, tray.h / rows);
     const k = Math.min(1, (cell * 0.86) / p);
     if (k > best.k) best = { k, cols, rows, cell };
   }
@@ -333,10 +358,12 @@ function grab(e, pc) {
   pc.el.classList.add('dragging');
   pc.el.style.transform = 'scale(1.08)';
   drag = { pc, id: e.pointerId };
+  slotsEl.children[pc.r * N + pc.c].classList.add('target');
   move(e);
   pc.el.addEventListener('pointermove', move);
   pc.el.addEventListener('pointerup', drop);
   pc.el.addEventListener('pointercancel', drop);
+  pc.el.addEventListener('lostpointercapture', drop);
 }
 function move(e) {
   if (!drag || e.pointerId !== drag.id) return;
@@ -349,7 +376,9 @@ function drop(e) {
   el.removeEventListener('pointermove', move);
   el.removeEventListener('pointerup', drop);
   el.removeEventListener('pointercancel', drop);
+  el.removeEventListener('lostpointercapture', drop);
   el.classList.remove('dragging');
+  [...slotsEl.children].forEach(d => d.classList.remove('target'));
   drag = null;
   const cxp = parseFloat(el.style.left) + L.p / 2, cyp = parseFloat(el.style.top) + L.p / 2;
   const tx = L.bx + pc.c * L.p + L.p / 2, ty = L.by + pc.r * L.p + L.p / 2;
@@ -392,6 +421,7 @@ const CREDITS = [
 ];
 document.getElementById('creditList').innerHTML = CREDITS.map(([v, t, a, l, u]) =>
   `<li>${v}: <a href="${u}" target="_blank" rel="noopener">${t}</a> av ${a} (${l}). Klippt och volymjusterat.</li>`).join('');
+renderMode();
 renderHome();
 </script>
 </body>
