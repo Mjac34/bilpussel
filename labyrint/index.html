@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#8bc34a">
+<title>Dinolabyrint</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: "Comic Sans MS", "Chalkboard SE", "Trebuchet MS", sans-serif;
+    background: #9ccc65;
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+  .screen { position: fixed; inset: 0; display: none; }
+  .screen.active { display: block; }
+
+  /* Startsida */
+  #home { overflow-y: auto; touch-action: pan-y; padding: 12px 16px 40px; background: linear-gradient(#b3e5fc, #dcedc8 60%, #aed581); }
+  #home h1 { text-align: center; margin: 6px 0 0; font-size: clamp(34px, 8vw, 60px); color: #2e7d32; text-shadow: 3px 3px 0 #fff; letter-spacing: 1px; }
+  #heroWrap { display: flex; justify-content: center; align-items: center; gap: 10px; margin: 4px auto 10px; }
+  #hero { width: min(260px, 50vw); height: auto; -webkit-mask-image: linear-gradient(90deg, #000 70%, transparent); mask-image: linear-gradient(90deg, #000 70%, transparent); }
+  #playBtn { border: none; border-radius: 999px; background: #43a047; color: #fff; font: inherit; font-size: clamp(30px, 7vw, 44px); font-weight: bold; padding: 14px 40px; box-shadow: 0 6px 0 #1b5e20; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  #playBtn:active { transform: translateY(4px); box-shadow: 0 2px 0 #1b5e20; }
+  #levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 14px; max-width: 900px; margin: 18px auto 0; }
+  .lvl { position: relative; background: #fff; border: none; border-radius: 20px; padding: 6px 6px 2px; box-shadow: 0 5px 0 rgba(0,0,0,.15); cursor: pointer; font: inherit; }
+  .lvl:active { transform: scale(.95); }
+  .lvl svg { display: block; width: 100%; height: 64px; }
+  .lvl .num { display: block; font-size: 22px; font-weight: bold; color: #33691e; }
+  .lvl .star { position: absolute; top: -8px; right: -8px; display: none; filter: drop-shadow(0 2px 1px rgba(0,0,0,.3)); }
+  .lvl.done .star { display: block; }
+  #credits { max-width: 900px; margin: 26px auto 0; font-size: 13px; color: #33691e; text-align: center; }
+  #credits a { color: inherit; }
+
+  /* Spelet */
+  #game { background: #9ccc65; }
+  #board { position: absolute; left: 0; right: 0; top: 64px; bottom: 0; width: 100%; height: calc(100% - 64px); touch-action: none; }
+  .btn { position: absolute; border: none; border-radius: 50%; background: #fff; box-shadow: 0 5px 0 rgba(0,0,0,.18); cursor: pointer; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; z-index: 50; padding: 0; }
+  .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 rgba(0,0,0,.18); }
+  #homeBtn { top: 6px; left: 10px; }
+  #lvlLabel { position: absolute; top: 12px; left: 80px; right: 80px; text-align: center; font-size: 30px; font-weight: bold; color: #fff; text-shadow: 2px 2px 0 #558b2f; pointer-events: none; }
+  #doneBar { position: absolute; left: 0; right: 0; bottom: 24px; display: none; justify-content: center; gap: 28px; z-index: 210; }
+  #doneBar.show { display: flex; animation: pop .4s ease; }
+  #doneBar button { position: static; width: 110px; height: 110px; }
+  #nextBtn { background: #43a047 !important; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes pulse { 50% { transform: scale(1.08); } }
+  #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 200; }
+
+  /* SVG-detaljer */
+  .tubeOuter { stroke: #6d4c41; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .tubeInner { stroke: #ffe0b2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .tubeShine { stroke: #fff8e1; stroke-linecap: round; stroke-linejoin: round; fill: none; opacity: .7; }
+  #wallHit { transition: opacity .25s; }
+  #arrowG { transition: opacity .2s; pointer-events: none; }
+  #arrowG .bob { animation: bob .8s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateX(.12px); } }
+  #foodShake.shake { animation: shake .35s linear; }
+  @keyframes shake { 20% { transform: translate(-6px, 0); } 40% { transform: translate(6px, 0); } 60% { transform: translate(-4px, 0); } 80% { transform: translate(4px, 0); } }
+  #foodShake.wiggle { animation: wiggle .5s ease; }
+  @keyframes wiggle { 30% { transform: scale(1.25); } 60% { transform: scale(.9); } }
+  #foodShake { transform-box: fill-box; transform-origin: center; }
+</style>
+</head>
+<body>
+
+<section id="home" class="screen active">
+  <h1>Dinolabyrint</h1>
+  <div id="heroWrap"><svg id="hero" viewBox="-130 -100 330 170"></svg></div>
+  <div style="display:flex;justify-content:center"><button id="playBtn">Spela <svg viewBox="0 0 24 24" width="40" height="40"><path d="M7 4v16l13-8z" fill="#fff"/></svg></button></div>
+  <div id="levels"></div>
+  <p id="credits">Tuggljud: <a href="https://commons.wikimedia.org/wiki/File:Crunch_(Gravity_Sound).wav" target="_blank" rel="noopener">"crunch"</a> av Gravity Sound (CC BY 4.0), klippt och volymjusterat.</p>
+</section>
+
+<section id="game" class="screen">
+  <button class="btn" id="homeBtn" aria-label="Hem"><svg viewBox="0 0 24 24" width="60%" height="60%"><path d="M3 11 12 3l9 8v10h-6v-6H9v6H3z" fill="#e53935"/></svg></button>
+  <div id="lvlLabel"></div>
+  <svg id="board" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <radialGradient id="redGlow"><stop offset="0" stop-color="#ff1744" stop-opacity=".95"/><stop offset=".55" stop-color="#ff1744" stop-opacity=".55"/><stop offset="1" stop-color="#ff1744" stop-opacity="0"/></radialGradient>
+    </defs>
+    <g id="world">
+      <g id="deco"></g>
+      <circle id="wallHit" r=".6" fill="url(#redGlow)" opacity="0"/>
+      <g id="tube"></g>
+      <g id="dino"></g>
+      <g id="arrowG" opacity="0"><g class="bob"><path d="M-.32 -.1 H.05 V-.24 L.36 0 L.05 .24 V.1 H-.32 Z" fill="#ffca28" stroke="#e65100" stroke-width=".05" stroke-linejoin="round"/></g></g>
+      <g id="food"><g id="foodShake"><g id="foodArt"></g></g></g>
+    </g>
+  </svg>
+  <div id="doneBar">
+    <button class="btn" id="againBtn" aria-label="Igen"><svg viewBox="0 0 24 24" width="60%" height="60%"><path d="M12 4a8 8 0 1 0 8 8h-3a5 5 0 1 1-5-5v3l5-4.5L12 1z" fill="#1e88e5"/></svg></button>
+    <button class="btn" id="nextBtn" aria-label="Nästa"><svg viewBox="0 0 24 24" width="60%" height="60%"><path d="M4 10h10V5l8 7-8 7v-5H4z" fill="#fff"/></svg></button>
+  </div>
+</section>
+<canvas id="confetti"></canvas>
+
+<script>
+'use strict';
+// ---------- Nivåer ----------
+// Koordinater i rutor. Första punkten i "main" är där maten börjar, sista är vid dinosaurien (längst till höger).
+const LEVELS = [
+  { main: [[0, 0], [3, 0]] },
+  { main: [[0, 0], [0, 2], [3, 2]] },
+  { main: [[0, 0], [2, 0], [2, 2], [4, 2]] },
+  { main: [[0, 2], [0, 0], [2, 0], [2, 2], [4, 2]] },
+  { main: [[0, 0], [3, 0], [3, 2], [0, 2], [0, 4], [4, 4]] },
+  { main: [[0, 0], [2, 0], [2, 2], [4, 2]], branches: [[[2, 0], [4, 0]]] },
+  { main: [[0, 0], [0, 3], [3, 3], [3, 1], [5, 1]], branches: [[[3, 3], [5, 3]], [[3, 1], [3, 0], [1, 0]]] },
+];
+const MAZE_SIZES = [[3, 3], [4, 3], [4, 4], [5, 4], [6, 4], [6, 5]];
+
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+// Slumpad labyrint (alltid samma för samma nivånummer)
+function genMaze(n) {
+  const [w, h] = MAZE_SIZES[Math.min(n - LEVELS.length - 1, MAZE_SIZES.length - 1)];
+  const rnd = mulberry32(n * 7919 + 13);
+  const seen = new Set(), lines = [], adj = {};
+  const first = [0, Math.floor(rnd() * h)], stack = [first];
+  seen.add(first + '');
+  while (stack.length) {
+    const c = stack[stack.length - 1];
+    const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(d => [c[0] + d[0], c[1] + d[1]])
+      .filter(p => p[0] >= 0 && p[0] < w && p[1] >= 0 && p[1] < h && !seen.has(p + ''));
+    if (!nb.length) { stack.pop(); continue; }
+    const p = nb[Math.floor(rnd() * nb.length)];
+    seen.add(p + ''); lines.push([c, p]); stack.push(p);
+    (adj[c] = adj[c] || []).push(p); (adj[p] = adj[p] || []).push(c);
+  }
+  const end = [w - 1, Math.floor(rnd() * h)];
+  const dist = { [end]: 0 }, q = [end];
+  while (q.length) { const c = q.shift(); for (const p of adj[c] || []) if (!(p in dist)) { dist[p] = dist[c] + 1; q.push(p); } }
+  let start = [0, 0];
+  for (let y = 0; y < h; y++) if (dist[[0, y]] > (dist[start] ?? -1)) start = [0, y];
+  return { lines, start, end };
+}
+function levelDef(n) {
+  if (n <= LEVELS.length) { const L = LEVELS[n - 1]; return { lines: [L.main, ...(L.branches || [])], start: L.main[0], end: L.main[L.main.length - 1] }; }
+  return genMaze(n);
+}
+
+// ---------- Mat ----------
+const FOODS = [
+  { name: 'äpplet', svg: `<path d="M0 -26 C-18 -40 -46 -30 -44 -2 C-42 26 -20 46 0 38 C20 46 42 26 44 -2 C46 -30 18 -40 0 -26Z" fill="#e53935" stroke="#b71c1c" stroke-width="4"/><path d="M0 -26 Q2 -40 8 -46" stroke="#5d4037" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M6 -38 Q22 -52 34 -40 Q20 -30 6 -38Z" fill="#66bb6a"/><ellipse cx="-22" cy="-8" rx="7" ry="12" fill="#fff" opacity=".45"/>` },
+  { name: 'bananen', svg: `<path d="M-40 -30 C-44 10 -10 44 36 30 C44 28 46 20 38 18 C0 24 -22 0 -26 -30 C-28 -38 -38 -40 -40 -30Z" fill="#fdd835" stroke="#f57f17" stroke-width="4" stroke-linejoin="round"/><path d="M-40 -30 L-36 -42" stroke="#6d4c41" stroke-width="7" stroke-linecap="round"/>` },
+  { name: 'moroten', svg: `<path d="M-14 -22 L14 -22 L2 46 Q0 50 -2 46Z" fill="#fb8c00" stroke="#e65100" stroke-width="4" stroke-linejoin="round"/><path d="M-6 -6 h8 M-4 12 h7 M-2 28 h5" stroke="#e65100" stroke-width="3" stroke-linecap="round"/><path d="M0 -22 Q-20 -40 -16 -50 Q-4 -40 0 -26 Q4 -46 14 -50 Q16 -36 0 -22Z" fill="#43a047"/>` },
+  { name: 'jordgubben', svg: `<path d="M0 44 C-30 30 -44 4 -38 -14 C-32 -30 -10 -30 0 -22 C10 -30 32 -30 38 -14 C44 4 30 30 0 44Z" fill="#e53935" stroke="#b71c1c" stroke-width="4"/><g fill="#ffeb3b"><circle cx="-18" cy="-6" r="3"/><circle cx="0" cy="-4" r="3"/><circle cx="18" cy="-6" r="3"/><circle cx="-10" cy="12" r="3"/><circle cx="10" cy="12" r="3"/><circle cx="0" cy="28" r="3"/></g><path d="M-26 -24 L-8 -30 L0 -42 L8 -30 L26 -24 L8 -20 L0 -16 L-8 -20Z" fill="#43a047"/>` },
+  { name: 'lövet', svg: `<path d="M-40 34 C-46 -10 -10 -44 42 -40 C44 6 14 44 -40 34Z" fill="#66bb6a" stroke="#2e7d32" stroke-width="4" stroke-linejoin="round"/><path d="M-44 40 L30 -30 M-14 12 L-12 -12 M4 -6 L6 -26 M-14 12 L8 14 M4 -6 L24 -4" stroke="#2e7d32" stroke-width="4" stroke-linecap="round" fill="none"/>` },
+  { name: 'vattenmelonen', svg: `<path d="M-46 -10 A46 46 0 0 0 46 -10Z" fill="#43a047"/><path d="M-38 -10 A38 38 0 0 0 38 -10Z" fill="#ff5252"/><g fill="#212121"><ellipse cx="-16" cy="4" rx="3" ry="5"/><ellipse cx="0" cy="12" rx="3" ry="5"/><ellipse cx="16" cy="4" rx="3" ry="5"/></g>` },
+  { name: 'päronet', svg: `<path d="M0 -34 C-12 -34 -14 -18 -18 -8 C-36 6 -34 42 0 42 C34 42 36 6 18 -8 C14 -18 12 -34 0 -34Z" fill="#c0ca33" stroke="#827717" stroke-width="4"/><path d="M0 -34 Q0 -44 6 -50" stroke="#5d4037" stroke-width="6" fill="none" stroke-linecap="round"/><ellipse cx="-14" cy="10" rx="6" ry="11" fill="#fff" opacity=".4"/>` },
+  { name: 'broccolin', svg: `<path d="M-8 6 L-12 44 L12 44 L8 6Z" fill="#9ccc65" stroke="#558b2f" stroke-width="4" stroke-linejoin="round"/><g fill="#388e3c" stroke="#1b5e20" stroke-width="3"><circle cx="-22" cy="-6" r="18"/><circle cx="22" cy="-6" r="18"/><circle cx="0" cy="-20" r="22"/></g>` },
+];
+
+// ---------- Dinosaurier ----------
+const DINO_COLORS = [
+  { body: '#66bb6a', dark: '#2e7d32', belly: '#c5e1a5', spike: '#ffa726' },
+  { body: '#ab47bc', dark: '#6a1b9a', belly: '#e1bee7', spike: '#ffee58' },
+  { body: '#29b6f6', dark: '#0277bd', belly: '#b3e5fc', spike: '#ff7043' },
+  { body: '#ff9800', dark: '#e65100', belly: '#ffe0b2', spike: '#7cb342' },
+  { body: '#ec407a', dark: '#ad1457', belly: '#f8bbd0', spike: '#26c6da' },
+];
+// Huvud med munnen i (0,7), nosen åt vänster och halsen åt höger.
+function dinoSvg(c) {
+  const spikes = [140, 200, 260, 320, 380, 440].map(x => {
+    const y = -34 + (x - 140) * 0.06;
+    return `<path d="M${x - 22} ${y + 8} L${x} ${y - 26} L${x + 22} ${y + 8}Z" fill="${c.spike}" stroke="${c.dark}" stroke-width="3" stroke-linejoin="round"/>`;
+  }).join('');
+  return `
+  ${spikes}
+  <path d="M80 -40 C160 -46 300 -26 900 0 L900 140 C400 130 160 110 80 40Z" fill="${c.body}" stroke="${c.dark}" stroke-width="4"/>
+  <path d="M110 40 C200 80 400 100 900 110 L900 140 C400 130 160 110 90 44Z" fill="${c.belly}"/>
+  <ellipse cx="58" cy="16" rx="44" ry="20" fill="#8e0000"/>
+  <ellipse cx="66" cy="24" rx="24" ry="9" fill="#f48fb1"/>
+  <g class="jaw">
+    <path d="M6 8 C30 8 80 8 110 6 C114 32 92 48 60 48 C30 48 12 34 6 8Z" fill="${c.body}" stroke="${c.dark}" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M20 30 C40 44 80 44 100 30" stroke="${c.belly}" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <path d="M20 8 L25 -2 L30 8 M42 8 L47 -2 L52 8 M64 8 L69 -2 L74 8" fill="#fff" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+  </g>
+  <path d="M14 6 L19 16 L24 6 M36 6 L41 16 L46 6 M58 6 L63 16 L68 6" fill="#fff" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M2 6 C-8 -28 8 -64 52 -72 C98 -80 132 -50 124 -10 C122 4 116 8 110 6 L4 6Z" fill="${c.body}" stroke="${c.dark}" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="96" cy="-8" rx="13" ry="8" fill="#f48fb1" opacity=".7"/>
+  <ellipse cx="18" cy="-26" rx="5" ry="3.5" fill="${c.dark}"/>
+  <g class="eyeOpen">
+    <circle cx="70" cy="-42" r="18" fill="#fff" stroke="${c.dark}" stroke-width="3"/>
+    <g class="pupil"><circle cx="70" cy="-42" r="10" fill="#212121"/><circle cx="66" cy="-46" r="3.5" fill="#fff"/></g>
+  </g>
+  <path class="eyeHappy" d="M54 -40 Q70 -58 86 -40" stroke="#212121" stroke-width="6" fill="none" stroke-linecap="round" style="display:none"/>`;
+}
+
+// ---------- Ljud ----------
+let actx = null;
+function audio() {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (actx && actx.state === 'suspended') actx.resume();
+  return actx;
+}
+let crunchBuf = null;
+function loadCrunch() {
+  const a = audio(); if (!a || crunchBuf) return;
+  crunchBuf = fetch('sounds/crunch.mp3').then(r => r.arrayBuffer())
+    .then(b => new Promise((ok, err) => a.decodeAudioData(b, ok, err))).catch(() => null);
+}
+async function crunch(rate) {
+  const a = audio(); if (!a) return;
+  loadCrunch(); const buf = await crunchBuf; if (!buf) return;
+  const s = a.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate || 1; s.connect(a.destination); s.start();
+}
+function bonk() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = a.createOscillator(), g = a.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(80, t + 0.18);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t + 0.25);
+}
+function say(text) {
+  try {
+    if (!('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'sv-SE'; u.rate = 0.9; u.pitch = 1.2;
+    const sv = speechSynthesis.getVoices().find(v => v.lang && v.lang.toLowerCase().startsWith('sv'));
+    if (sv) u.voice = sv;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+
+// ---------- Konfetti ----------
+const cv = document.getElementById('confetti'), cx = cv.getContext('2d');
+let parts = [], confettiOn = false;
+function confetti() {
+  cv.width = innerWidth; cv.height = innerHeight;
+  const colors = ['#e53935', '#fdd835', '#43a047', '#1e88e5', '#fb8c00', '#ab47bc'];
+  for (let i = 0; i < 160; i++) parts.push({
+    x: Math.random() * cv.width, y: -20 - Math.random() * cv.height * 0.5,
+    vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 4, s: 8 + Math.random() * 8,
+    r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, c: colors[i % colors.length] });
+  if (!confettiOn) { confettiOn = true; requestAnimationFrame(tick); }
+}
+function tick() {
+  cx.clearRect(0, 0, cv.width, cv.height);
+  parts.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.r += p.vr;
+    cx.save(); cx.translate(p.x, p.y); cx.rotate(p.r); cx.fillStyle = p.c; cx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); cx.restore(); });
+  parts = parts.filter(p => p.y < cv.height + 30);
+  if (parts.length) requestAnimationFrame(tick); else { confettiOn = false; cx.clearRect(0, 0, cv.width, cv.height); }
+}
+
+// ---------- Geometri ----------
+const TUBE = 0.56, FOOD = 0.46, DINO_S = 0.0105;
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
+const len = v => Math.hypot(v[0], v[1]);
+const dist = (a, b) => len(sub(a, b));
+const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+function projT(A, B, P) {
+  const d = sub(B, A), L2 = d[0] * d[0] + d[1] * d[1];
+  return L2 ? clamp(((P[0] - A[0]) * d[0] + (P[1] - A[1]) * d[1]) / L2, 0, 1) : 0;
+}
+
+// ---------- Spelets tillstånd ----------
+const $ = id => document.getElementById(id);
+const svgNS = 'http://www.w3.org/2000/svg';
+const board = $('board'), world = $('world');
+let N = [], ADJ = [], EDGES = [], GD = [], NEXT = [], startIdx = 0, mouthIdx = 0, mouthPt = [0, 0];
+let bounds = null, level = 1, pos = null, dragging = false, pointerId = null, target = null;
+let blocked = false, won = false, gen = 0, lastMove = 0, saidWall = false, lastBonk = 0, jawAngle = 0;
+
+function buildGraph(def) {
+  const idx = new Map(); N = []; ADJ = []; EDGES = [];
+  const node = p => { const k = p[0] + ',' + p[1]; if (!idx.has(k)) { idx.set(k, N.length); N.push([p[0], p[1]]); ADJ.push([]); } return idx.get(k); };
+  const link = (a, b) => { if (a === b || ADJ[a].includes(b)) return; ADJ[a].push(b); ADJ[b].push(a); EDGES.push([a, b]); };
+  for (const line of def.lines) for (let i = 1; i < line.length; i++) {
+    const A = line[i - 1], B = line[i], steps = Math.max(Math.abs(B[0] - A[0]), Math.abs(B[1] - A[1]));
+    for (let s = 0; s < steps; s++) link(node(lerp(A, B, s / steps).map(Math.round)), node(lerp(A, B, (s + 1) / steps).map(Math.round)));
+  }
+  startIdx = node(def.start);
+  const endIdx = node(def.end);
+  mouthPt = [def.end[0] + 0.85, def.end[1]];
+  mouthIdx = node(mouthPt); link(endIdx, mouthIdx);
+  // Avstånd till munnen längs röret
+  GD = N.map(() => Infinity); GD[mouthIdx] = 0;
+  for (let changed = true; changed;) { changed = false;
+    for (const [a, b] of EDGES) { const L = dist(N[a], N[b]);
+      if (GD[a] + L < GD[b] - 1e-9) { GD[b] = GD[a] + L; changed = true; }
+      if (GD[b] + L < GD[a] - 1e-9) { GD[a] = GD[b] + L; changed = true; } } }
+  NEXT = N.map((p, i) => { let best = -1, bd = Infinity; for (const m of ADJ[i]) { const d = dist(p, N[m]) + GD[m]; if (d < bd) { bd = d; best = m; } } return best; });
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  N.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
+  x0 -= 0.75; y0 = Math.min(y0 - 0.75, mouthPt[1] - 0.95); y1 = Math.max(y1 + 0.75, mouthPt[1] + 0.75);
+  x1 = mouthPt[0] + 1.25;
+  bounds = { x0, y0, x1, y1 };
+}
+
+function el(tag, attrs, parent) { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+function pathD() { return EDGES.map(([a, b]) => `M${N[a][0]} ${N[a][1]}L${N[b][0]} ${N[b][1]}`).join(''); }
+
+function drawDeco(rnd) {
+  const g = $('deco'); g.innerHTML = '';
+  const segDist = P => Math.min(...EDGES.map(([a, b]) => dist(P, lerp(N[a], N[b], projT(N[a], N[b], P)))));
+  let placed = 0;
+  for (let i = 0; i < 200 && placed < 9; i++) {
+    const P = [bounds.x0 + rnd() * (mouthPt[0] - 0.4 - bounds.x0), bounds.y0 + rnd() * (bounds.y1 - bounds.y0)];
+    if (segDist(P) < 0.62) continue;
+    const kind = Math.floor(rnd() * 3), s = 0.005 + rnd() * 0.002;
+    const art = kind === 0
+      ? `<path d="M0 30 Q-4 0 -30 -20 M0 30 Q2 -10 4 -36 M0 30 Q6 0 30 -22" stroke="#558b2f" stroke-width="8" fill="none" stroke-linecap="round"/>`
+      : kind === 1 ? `<ellipse cx="0" cy="10" rx="34" ry="22" fill="#a1887f" stroke="#6d4c41" stroke-width="5"/><ellipse cx="-8" cy="2" rx="10" ry="5" fill="#d7ccc8"/>`
+      : `<g fill="#fff59d" stroke="#fbc02d" stroke-width="3"><circle cx="0" cy="-12" r="9"/><circle cx="12" cy="0" r="9"/><circle cx="0" cy="12" r="9"/><circle cx="-12" cy="0" r="9"/></g><circle r="8" fill="#ff8f00"/>`;
+    el('g', { transform: `translate(${P[0]} ${P[1]}) scale(${s})` }, g).innerHTML = art;
+    placed++;
+  }
+}
+
+function startLevel(n) {
+  gen++; level = n; won = false; blocked = false; dragging = false; saidWall = false; jawAngle = 0;
+  $('doneBar').classList.remove('show');
+  $('lvlLabel').textContent = 'Nivå ' + n;
+  buildGraph(levelDef(n));
+  const tube = $('tube'); tube.innerHTML = '';
+  const d = pathD();
+  el('path', { d, class: 'tubeOuter', 'stroke-width': TUBE + 0.12 }, tube);
+  el('path', { d, class: 'tubeInner', 'stroke-width': TUBE }, tube);
+  el('path', { d, class: 'tubeShine', 'stroke-width': TUBE * 0.22, transform: 'translate(-.06 -.06)' }, tube);
+  drawDeco(mulberry32(n * 31 + 7));
+  const c = DINO_COLORS[(n - 1) % DINO_COLORS.length];
+  const dino = $('dino');
+  dino.setAttribute('transform', `translate(${mouthPt[0] - 0.22} ${mouthPt[1]}) scale(${DINO_S}) translate(0 -7)`);
+  dino.innerHTML = dinoSvg(c);
+  const food = FOODS[(n - 1) % FOODS.length];
+  $('foodArt').innerHTML = food.svg;
+  $('foodArt').setAttribute('transform', `scale(${FOOD / 100})`);
+  $('food').style.display = '';
+  pos = { a: startIdx, b: ADJ[startIdx][0], t: 0 };
+  layout(); render(); setJaw(0);
+  showArrow(true); hideWall();
+  lastMove = performance.now();
+  say(n === 1 ? 'Dinosaurien är hungrig! Dra ' + food.name + ' genom röret till munnen.' : 'Mer mat! Dra ' + food.name + ' till dinosaurien.');
+  loadCrunch();
+}
+
+function layout() {
+  if (!bounds) return;
+  const r = board.getBoundingClientRect();
+  const portrait = r.height > r.width * 1.05;
+  const { x0, y0, x1, y1 } = bounds;
+  if (portrait) { board.setAttribute('viewBox', `${y0} ${x0} ${y1 - y0} ${x1 - x0}`); world.setAttribute('transform', 'matrix(0 1 1 0 0 0)'); }
+  else { board.setAttribute('viewBox', `${x0} ${y0} ${x1 - x0} ${y1 - y0}`); world.removeAttribute('transform'); }
+}
+addEventListener('resize', layout);
+
+const pt = p => lerp(N[p.a], N[p.b], p.t);
+function render() {
+  const P = pt(pos);
+  $('food').setAttribute('transform', `translate(${P[0]} ${P[1]})`);
+  if (!won) {
+    const d = dist(P, mouthPt);
+    setJaw(32 * clamp((2.3 - d) / 1.7, 0, 1));
+    // Pupillen tittar mot maten
+    const eye = [mouthPt[0] - 0.22 + 70 * DINO_S, mouthPt[1] + (-42 - 7) * DINO_S];
+    const v = sub(P, eye), L = len(v) || 1;
+    const pupil = $('dino').querySelector('.pupil');
+    if (pupil) pupil.setAttribute('transform', `translate(${v[0] / L * 6} ${v[1] / L * 6})`);
+  }
+}
+function setJaw(a) { jawAngle = a; const j = $('dino').querySelector('.jaw'); if (j) j.setAttribute('transform', `rotate(${-a} 110 6)`); }
+
+// Gå längs röret mot P, högst "budget" långt. Returnerar true om maten inte kan komma närmare.
+function walk(P, budget) {
+  for (let i = 0; i < 80; i++) {
+    const A = N[pos.a], B = N[pos.b], L = dist(A, B);
+    let tt = projT(A, B, P);
+    if (tt < 1e-4) tt = 0; else if (tt > 1 - 1e-4) tt = 1;
+    const travel = Math.abs(tt - pos.t) * L;
+    if (travel > budget) { pos.t += Math.sign(tt - pos.t) * budget / L; return false; }
+    pos.t = tt; budget -= travel;
+    if (tt > 0 && tt < 1) return true;
+    const n = tt === 0 ? pos.a : pos.b, other = n === pos.a ? pos.b : pos.a, here = N[n];
+    let best = dist(here, P), bestM = -1;
+    for (const m of ADJ[n]) { const q = lerp(here, N[m], projT(here, N[m], P)), d = dist(q, P); if (d < best - 1e-6) { best = d; bestM = m; } }
+    if (bestM < 0) { pos = { a: n, b: other, t: 0 }; return true; }
+    pos = { a: n, b: bestM, t: 0 };
+  }
+  return false;
+}
+
+// Punkt en bit fram längs rätt väg, och riktningen där
+function ahead(d) {
+  let cur = pt(pos);
+  const viaA = GD[pos.a] + dist(cur, N[pos.a]), viaB = GD[pos.b] + dist(cur, N[pos.b]);
+  let next = viaA <= viaB ? pos.a : pos.b, dir = [1, 0];
+  for (let i = 0; i < 50; i++) {
+    const seg = dist(cur, N[next]);
+    if (seg > 1e-9) { const v = sub(N[next], cur); dir = [v[0] / seg, v[1] / seg]; }
+    if (seg >= d || next === mouthIdx) { const s = Math.min(d, seg); return { p: [cur[0] + dir[0] * s, cur[1] + dir[1] * s], dir }; }
+    d -= seg; cur = N[next]; next = NEXT[next];
+  }
+  return { p: cur, dir };
+}
+function showArrow(on) {
+  const g = $('arrowG');
+  if (on) {
+    const { p, dir } = ahead(0.62);
+    g.setAttribute('transform', `translate(${p[0]} ${p[1]}) rotate(${Math.atan2(dir[1], dir[0]) * 180 / Math.PI})`);
+  }
+  g.setAttribute('opacity', on ? 1 : 0);
+}
+function hideWall() { $('wallHit').setAttribute('opacity', 0); }
+
+function toLevel(e) {
+  const m = world.getScreenCTM().inverse();
+  const q = new DOMPoint(e.clientX, e.clientY).matrixTransform(m);
+  return [q.x, q.y];
+}
+function poke(cls) { const s = $('foodShake'); s.classList.remove('shake', 'wiggle'); void s.getBoundingClientRect(); s.classList.add(cls); }
+
+board.addEventListener('pointerdown', e => {
+  audio();
+  if (won || dragging) return;
+  const P = toLevel(e);
+  if (dist(P, pt(pos)) > 1.0) { poke('wiggle'); showArrow(true); return; }
+  dragging = true; pointerId = e.pointerId; target = P;
+  try { board.setPointerCapture(e.pointerId); } catch (_) {}
+  showArrow(false);
+  requestAnimationFrame(step);
+});
+board.addEventListener('pointermove', e => { if (dragging && e.pointerId === pointerId) target = toLevel(e); });
+function release(e) {
+  if (!dragging || e.pointerId !== pointerId) return;
+  dragging = false; blocked = false; hideWall(); showArrow(false); lastMove = performance.now();
+}
+board.addEventListener('pointerup', release);
+board.addEventListener('pointercancel', release);
+
+function step() {
+  if (!dragging || won) return;
+  const before = pt(pos);
+  const stuck = walk(target, 0.35);
+  const P = pt(pos);
+  if (dist(before, P) > 1e-4) lastMove = performance.now();
+  render();
+  if (dist(P, mouthPt) < 0.12) { win(); return; }
+  const gap = dist(P, target);
+  const nowBlocked = stuck && gap > (blocked ? 0.42 : 0.55);
+  if (nowBlocked) {
+    const v = sub(target, P), L = len(v) || 1;
+    const w = $('wallHit');
+    w.setAttribute('cx', P[0] + v[0] / L * (TUBE / 2 + 0.12));
+    w.setAttribute('cy', P[1] + v[1] / L * (TUBE / 2 + 0.12));
+    w.setAttribute('opacity', 1);
+    showArrow(true);
+    if (!blocked) {
+      const now = performance.now();
+      if (now - lastBonk > 700) { bonk(); poke('shake'); if (navigator.vibrate) navigator.vibrate(40); lastBonk = now; }
+      if (!saidWall) { saidWall = true; say('Oj, en vägg! Följ pilen.'); }
+    }
+  } else if (blocked) { hideWall(); showArrow(false); }
+  blocked = nowBlocked;
+  requestAnimationFrame(step);
+}
+
+// Visa pilen igen om inget händer på en stund
+setInterval(() => {
+  if ($('game').classList.contains('active') && !won && !dragging && performance.now() - lastMove > 4000) showArrow(true);
+}, 500);
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function animate(ms, fn) {
+  return new Promise(res => { const t0 = performance.now();
+    const f = now => { const k = Math.min(1, (now - t0) / ms); fn(k); if (k < 1) requestAnimationFrame(f); else res(); };
+    requestAnimationFrame(f); });
+}
+async function win() {
+  won = true; dragging = false; blocked = false; hideWall(); showArrow(false);
+  const g = gen;
+  const food = $('food'), from = pt(pos), into = [mouthPt[0] + 0.35, mouthPt[1]];
+  setJaw(34);
+  await animate(260, k => food.setAttribute('transform', `translate(${from[0] + (into[0] - from[0]) * k} ${from[1] + (into[1] - from[1]) * k}) scale(${1 - k})`));
+  if (g !== gen) return;
+  food.style.display = 'none';
+  const dino = $('dino');
+  dino.querySelector('.eyeOpen').style.display = 'none';
+  dino.querySelector('.eyeHappy').style.display = '';
+  say('Nom nom nom!');
+  for (let i = 0; i < 3; i++) {
+    await animate(150, k => setJaw(34 * (1 - k)));
+    if (g !== gen) return;
+    crunch(0.95 + i * 0.08);
+    await sleep(90);
+    await animate(170, k => setJaw(26 * k));
+    if (g !== gen) return;
+  }
+  await animate(150, k => setJaw(26 * (1 - k)));
+  if (g !== gen) return;
+  done.add(level); localStorage.setItem('dinolabyrint-klara', JSON.stringify([...done]));
+  confetti();
+  await sleep(500);
+  if (g !== gen) return;
+  say('Mums! Tack för maten!');
+  $('doneBar').classList.add('show');
+}
+
+// ---------- Startsida ----------
+const done = new Set(JSON.parse(localStorage.getItem('dinolabyrint-klara') || '[]'));
+const STAR = '<svg viewBox="0 0 24 24" width="36" height="36"><path d="m12 2 3 7h7l-5.5 4.5 2 7.5L12 17l-6.5 4 2-7.5L2 9h7z" fill="#fdd835" stroke="#f57f17" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+function thumb(n) {
+  buildGraph(levelDef(n));
+  const { x0, y0, x1, y1 } = bounds;
+  return `<svg viewBox="${x0} ${y0} ${x1 - x0} ${y1 - y0}"><path d="${pathD()}" stroke="#6d4c41" stroke-width=".7" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="${pathD()}" stroke="#ffe0b2" stroke-width=".5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="${N[startIdx][0]}" cy="${N[startIdx][1]}" r=".22" fill="#e53935"/><circle cx="${mouthPt[0] + 0.3}" cy="${mouthPt[1]}" r=".55" fill="${DINO_COLORS[(n - 1) % DINO_COLORS.length].body}"/></svg>`;
+}
+function nextLevel() { let n = 1; while (done.has(n)) n++; return n; }
+function renderHome() {
+  const box = $('levels'); box.innerHTML = '';
+  const count = Math.max(15, Math.max(0, ...done) + 3);
+  for (let n = 1; n <= count; n++) {
+    const b = document.createElement('button');
+    b.className = 'lvl' + (done.has(n) ? ' done' : '');
+    b.innerHTML = thumb(n) + `<span class="num">${n}</span><span class="star">${STAR}</span>`;
+    b.addEventListener('click', () => play(n));
+    box.appendChild(b);
+  }
+  bounds = null;
+}
+function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id)); }
+function play(n) { audio(); show('game'); startLevel(n); }
+
+$('hero').innerHTML = `<g transform="translate(-80 -10) scale(${FOOD / 100 * 90})">${FOODS[0].svg}</g><g transform="rotate(-8) translate(0 0)">${dinoSvg(DINO_COLORS[0])}</g>`;
+$('hero').querySelector('.jaw').setAttribute('transform', 'rotate(-28 110 6)');
+$('playBtn').addEventListener('click', () => play(nextLevel()));
+$('homeBtn').addEventListener('click', () => { gen++; won = true; if ('speechSynthesis' in window) speechSynthesis.cancel(); renderHome(); show('home'); });
+$('againBtn').addEventListener('click', () => startLevel(level));
+$('nextBtn').addEventListener('click', () => startLevel(level + 1));
+document.addEventListener('contextmenu', e => e.preventDefault());
+renderHome();
+if ('speechSynthesis' in window) speechSynthesis.getVoices();
+</script>
+</body>
+</html>
