@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#8bc34a">
+<title>Dinopussel</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: "Comic Sans MS", "Chalkboard SE", "Trebuchet MS", system-ui, sans-serif;
+    background: linear-gradient(#dcedc8, #f1f8e9);
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+  .screen { position: fixed; inset: 0; display: none; }
+  .screen.active { display: block; }
+
+  /* Startsida */
+  #home { overflow-y: auto; touch-action: pan-y; padding: 16px 16px 40px; }
+  #home h1 { text-align: center; margin: 8px 0 16px; font-size: clamp(32px, 7vw, 56px); color: #2e7d32; text-shadow: 3px 3px 0 #fff; letter-spacing: 2px; }
+  #cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px; max-width: 900px; margin: 0 auto; }
+  .card { position: relative; background: #fff; border-radius: 24px; padding: 8px; box-shadow: 0 6px 0 rgba(0,0,0,.15); cursor: pointer; transition: transform .15s; border: none; }
+  .card:active { transform: scale(.95); }
+  .card svg { display: block; width: 100%; height: auto; border-radius: 18px; }
+  .card .star { position: absolute; top: -6px; right: -6px; font-size: 34px; display: none; filter: drop-shadow(0 2px 1px rgba(0,0,0,.3)); }
+  .card.done .star { display: block; }
+  .mode { display: flex; justify-content: center; gap: 18px; margin: 0 0 20px; }
+  .mode button { width: 84px; height: 84px; border-radius: 20px; border: 5px solid transparent; background: #fff; box-shadow: 0 5px 0 rgba(0,0,0,.15); padding: 10px; cursor: pointer; opacity: .55; }
+  .mode button.on { border-color: #43a047; opacity: 1; }
+  .mode svg { width: 100%; height: 100%; display: block; }
+  #credits { max-width: 900px; margin: 40px auto 0; font-family: system-ui, sans-serif; font-size: 12px; color: #546e7a; }
+  #credits summary { cursor: pointer; }
+  #credits a { color: inherit; }
+
+  /* Pusselsidan */
+  #game { overflow: hidden; }
+  .btn { position: absolute; border: none; border-radius: 50%; background: #fff; box-shadow: 0 5px 0 rgba(0,0,0,.18); cursor: pointer; font-size: 34px; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; z-index: 50; padding: 0; }
+  .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 rgba(0,0,0,.18); }
+  #homeBtn { top: 12px; left: 12px; }
+  #board { position: absolute; cursor: pointer; background: #fff; border-radius: 14px; box-shadow: 0 8px 0 rgba(0,0,0,.12); }
+  #board .guide { position: absolute; inset: 0; opacity: .22; border-radius: 14px; overflow: hidden; }
+  #board .guide svg { width: 100%; height: 100%; display: block; }
+  #board .slots { position: absolute; inset: 0; display: grid; grid-template: repeat(var(--n, 3), 1fr) / repeat(var(--n, 3), 1fr); }
+  #board .slots div { border: 2px dashed rgba(0,0,0,.18); }
+  #board .guide { transition: opacity .2s; }
+  #board.focus .guide { opacity: .08; }
+  #board.focus ~ .piece.placed { opacity: .35; }
+  #board .slots div { position: relative; overflow: hidden; }
+  #board .slots div.target { border: 5px solid #fbc02d; z-index: 1; animation: glow .6s ease-in-out infinite alternate; }
+  #board .slots div.target svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  @keyframes glow { from { border-color: #fff59d; } to { border-color: #f9a825; } }
+  #board.complete .slots { display: none; }
+  #board.complete .guide { opacity: 1; }
+  .piece.hidden { visibility: hidden; }
+  .piece { position: absolute; transform-origin: center; transition: left .35s ease, top .35s ease, transform .35s ease; cursor: grab; z-index: 10; touch-action: none; }
+  .piece svg { display: block; width: 100%; height: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,.3); pointer-events: none; }
+  .piece.dragging { transition: transform .15s ease; z-index: 100; cursor: grabbing; }
+  .piece.dragging svg { box-shadow: 0 14px 20px rgba(0,0,0,.35); }
+  .piece.placed { cursor: default; z-index: 5; }
+  .piece.placed svg { box-shadow: none; border-radius: 0; }
+  .celebrate { animation: hop .6s ease 3; }
+  @keyframes hop { 0%,100% { transform: translateY(0); } 40% { transform: translateY(-30px) scale(1.04); } }
+
+  #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 200; }
+  #doneBar { position: absolute; left: 0; right: 0; bottom: 24px; display: none; justify-content: center; gap: 28px; z-index: 210; }
+  #doneBar.show { display: flex; animation: pop .4s ease; }
+  #doneBar button { position: static; width: 110px; height: 110px; font-size: 60px; }
+  #nextBtn { background: #66bb6a !important; color: #fff; }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+</style>
+</head>
+<body>
+
+<svg id="defs" width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="symbols"></defs></svg>
+
+<div id="home" class="screen active">
+  <h1>Dinopussel</h1>
+  <div class="mode" id="mode"></div>
+  <div id="cards"></div>
+</div>
+
+<div id="game" class="screen">
+  <button class="btn" id="homeBtn" aria-label="Hem"><svg viewBox="0 0 24 24" width="60%" height="60%"><path d="M3 11 12 3l9 8v10h-6v-6H9v6H3z" fill="#e53935"/></svg></button>
+  <div id="board"><div class="guide"></div><div class="slots"></div></div>
+  <div id="doneBar">
+    <button class="btn" id="againBtn" aria-label="Igen"><svg viewBox="0 0 24 24" width="60%" height="60%"><path d="M12 4a8 8 0 1 0 8 8h-3a5 5 0 1 1-5-5v3l5-4.5L12 1z" fill="#1e88e5"/></svg></button>
+    <button class="btn" id="nextBtn" aria-label="Nästa"><svg viewBox="0 0 24 24" width="60%" height="60%"><path d="M4 10h10V5l8 7-8 7v-5H4z" fill="#fff"/></svg></button>
+  </div>
+</div>
+
+<canvas id="confetti"></canvas>
+
+<script>
+// ---------- Bilder (egenritade SVG, 300x300) ----------
+const eye = (x, y, r = 8) =>
+  `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff"/><circle cx="${x + r * 0.25}" cy="${y}" r="${r * 0.5}" fill="#263238"/>`;
+
+const bg = (sky = '#b2ebf2') => `
+  <rect width="300" height="300" fill="${sky}"/>
+  <circle cx="262" cy="40" r="24" fill="#ffeb3b"/>
+  <g fill="#fff"><circle cx="55" cy="45" r="16"/><circle cx="75" cy="38" r="20"/><circle cx="97" cy="47" r="15"/><rect x="55" y="45" width="42" height="16"/></g>
+  <path d="M150 215 L205 120 L222 120 L280 215 Z" fill="#a1887f"/>
+  <path d="M205 120 L222 120 L230 134 L214 128 L200 136 Z" fill="#ff7043"/>
+  <rect y="210" width="300" height="90" fill="#8bc34a"/>
+  <path d="M0 255 Q75 240 150 255 T300 255 V300 H0 Z" fill="#7cb342"/>
+  <g fill="#558b2f"><circle cx="20" cy="212" r="14"/><circle cx="40" cy="208" r="12"/><circle cx="285" cy="214" r="13"/></g>`;
+
+const DINOS = [
+  { id: 'trex', name: 'Tyrannosaurus', svg: bg() + `
+    <path d="M30 150 Q80 170 120 160 L130 200 Q70 200 30 150 Z" fill="#388e3c"/>
+    <rect x="120" y="215" width="26" height="55" rx="10" fill="#2e7d32"/>
+    <ellipse cx="150" cy="180" rx="55" ry="42" fill="#43a047"/>
+    <ellipse cx="150" cy="195" rx="32" ry="22" fill="#a5d6a7"/>
+    <rect x="160" y="215" width="28" height="60" rx="10" fill="#43a047"/>
+    <ellipse cx="174" cy="276" rx="22" ry="8" fill="#2e7d32"/>
+    <ellipse cx="134" cy="272" rx="20" ry="7" fill="#1b5e20"/>
+    <path d="M170 150 L190 100 L215 105 L200 170 Z" fill="#43a047"/>
+    <rect x="175" y="70" width="95" height="52" rx="22" fill="#43a047"/>
+    <rect x="195" y="112" width="70" height="20" rx="9" fill="#388e3c"/>
+    <g fill="#fff"><path d="M205 120 l6 9 l6 -9z"/><path d="M222 120 l6 9 l6 -9z"/><path d="M239 120 l6 9 l6 -9z"/></g>
+    ${eye(215, 88, 10)}
+    <circle cx="258" cy="84" r="3" fill="#1b5e20"/>
+    <rect x="195" y="165" width="26" height="10" rx="5" fill="#388e3c"/>` },
+
+  { id: 'triceratops', name: 'Triceratops', svg: bg() + `
+    <path d="M25 175 Q55 185 80 175 L85 205 Q50 205 25 175 Z" fill="#ef6c00"/>
+    <rect x="70" y="205" width="26" height="55" rx="10" fill="#ef6c00"/>
+    <rect x="150" y="205" width="26" height="55" rx="10" fill="#ef6c00"/>
+    <ellipse cx="135" cy="185" rx="78" ry="48" fill="#fb8c00"/>
+    <rect x="100" y="210" width="28" height="60" rx="10" fill="#fb8c00"/>
+    <rect x="175" y="210" width="28" height="60" rx="10" fill="#fb8c00"/>
+    <circle cx="218" cy="150" r="48" fill="#ffb74d"/>
+    <g fill="#e65100"><circle cx="190" cy="115" r="7"/><circle cx="218" cy="103" r="7"/><circle cx="246" cy="115" r="7"/></g>
+    <ellipse cx="238" cy="178" rx="40" ry="28" fill="#fb8c00"/>
+    <path d="M222 150 L262 112 L238 158 Z" fill="#fffde7"/>
+    <path d="M244 152 L290 125 L258 162 Z" fill="#fffde7"/>
+    <path d="M268 172 L295 160 L276 188 Z" fill="#fffde7"/>
+    ${eye(236, 166, 8)}
+    <path d="M250 192 Q262 198 274 190" stroke="#bf360c" stroke-width="4" fill="none" stroke-linecap="round"/>` },
+
+  { id: 'langhals', name: 'Långhals', svg: bg() + `
+    <path d="M20 200 Q45 205 70 190 L75 215 Q40 220 20 200 Z" fill="#1e88e5"/>
+    <rect x="75" y="200" width="26" height="62" rx="10" fill="#1976d2"/>
+    <rect x="135" y="200" width="26" height="62" rx="10" fill="#1976d2"/>
+    <path d="M150 175 Q175 120 190 70 L220 75 Q205 140 185 200 Z" fill="#42a5f5"/>
+    <ellipse cx="125" cy="190" rx="68" ry="42" fill="#42a5f5"/>
+    <ellipse cx="125" cy="205" rx="45" ry="20" fill="#90caf9"/>
+    <rect x="95" y="205" width="28" height="68" rx="10" fill="#42a5f5"/>
+    <rect x="155" y="205" width="28" height="68" rx="10" fill="#42a5f5"/>
+    <ellipse cx="220" cy="62" rx="36" ry="22" fill="#42a5f5"/>
+    ${eye(222, 55, 8)}
+    <path d="M232 72 Q244 78 254 70" stroke="#0d47a1" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <g fill="#1e88e5"><circle cx="110" cy="170" r="7"/><circle cx="140" cy="165" r="6"/><circle cx="160" cy="185" r="5"/></g>` },
+
+  { id: 'stegosaurus', name: 'Stegosaurus', svg: bg() + `
+    <g fill="#ffca28"><path d="M70 160 L85 112 L105 152 Z"/><path d="M100 148 L120 92 L142 142 Z"/><path d="M138 142 L160 88 L180 145 Z"/><path d="M175 150 L195 104 L210 160 Z"/></g>
+    <path d="M20 180 Q50 190 75 180 L80 205 Q45 210 20 180 Z" fill="#7b1fa2"/>
+    <g fill="#fffde7"><path d="M22 178 L5 160 L32 172 Z"/><path d="M35 183 L28 158 L45 180 Z"/></g>
+    <rect x="80" y="205" width="26" height="55" rx="10" fill="#7b1fa2"/>
+    <rect x="165" y="205" width="26" height="55" rx="10" fill="#7b1fa2"/>
+    <ellipse cx="140" cy="190" rx="78" ry="42" fill="#ab47bc"/>
+    <rect x="105" y="210" width="28" height="60" rx="10" fill="#ab47bc"/>
+    <rect x="185" y="210" width="28" height="60" rx="10" fill="#ab47bc"/>
+    <path d="M205 180 Q235 175 250 200 L210 215 Z" fill="#ab47bc"/>
+    <ellipse cx="255" cy="205" rx="26" ry="17" fill="#ab47bc"/>
+    ${eye(258, 200, 6)}` },
+
+  { id: 'flygodla', name: 'Flygödla', svg: bg('#b3e5fc') + `
+    <path d="M150 140 L20 95 Q60 150 120 160 Z" fill="#e57373"/>
+    <path d="M150 140 L280 95 Q240 150 180 160 Z" fill="#e57373"/>
+    <path d="M150 140 L40 100 L120 150 Z" fill="#ef9a9a"/>
+    <path d="M150 140 L260 100 L180 150 Z" fill="#ef9a9a"/>
+    <ellipse cx="150" cy="155" rx="28" ry="38" fill="#e53935"/>
+    <circle cx="150" cy="110" r="22" fill="#e53935"/>
+    <path d="M140 95 L105 70 L150 92 Z" fill="#c62828"/>
+    <path d="M162 110 L215 122 L162 120 Z" fill="#ffca28"/>
+    ${eye(155, 106, 7)}
+    <g fill="#c62828"><rect x="138" y="185" width="8" height="18" rx="4"/><rect x="155" y="185" width="8" height="18" rx="4"/></g>` },
+
+  { id: 'ankylosaurus', name: 'Ankylosaurus', svg: bg() + `
+    <path d="M60 205 Q40 200 30 185" stroke="#6d4c41" stroke-width="14" fill="none" stroke-linecap="round"/>
+    <circle cx="28" cy="180" r="18" fill="#5d4037"/>
+    <rect x="80" y="210" width="26" height="48" rx="10" fill="#6d4c41"/>
+    <rect x="175" y="210" width="26" height="48" rx="10" fill="#6d4c41"/>
+    <path d="M55 215 Q60 135 140 135 Q220 135 225 215 Z" fill="#8d6e63"/>
+    <g fill="#d7ccc8"><circle cx="100" cy="170" r="9"/><circle cx="140" cy="155" r="9"/><circle cx="180" cy="170" r="9"/><circle cx="120" cy="195" r="8"/><circle cx="160" cy="195" r="8"/></g>
+    <g fill="#fffde7"><path d="M62 190 L45 180 L65 175 Z"/><path d="M80 155 L68 138 L90 146 Z"/><path d="M200 155 L212 138 L190 146 Z"/><path d="M218 190 L235 180 L215 175 Z"/></g>
+    <rect x="100" y="210" width="28" height="55" rx="10" fill="#8d6e63"/>
+    <rect x="160" y="210" width="28" height="55" rx="10" fill="#8d6e63"/>
+    <ellipse cx="240" cy="200" rx="32" ry="20" fill="#8d6e63"/>
+    ${eye(246, 194, 7)}
+    <path d="M255 210 Q264 214 270 208" stroke="#4e342e" stroke-width="4" fill="none" stroke-linecap="round"/>` },
+];
+
+const symbols = document.getElementById('symbols');
+symbols.innerHTML = DINOS.map(v => `<symbol id="v-${v.id}" viewBox="0 0 300 300">${v.svg}</symbol>`).join('');
+const useSvg = (id, vb = '0 0 300 300') =>
+  `<svg viewBox="${vb}" preserveAspectRatio="none"><use href="#v-${id}" width="300" height="300"/></svg>`;
+
+// ---------- Ljud ----------
+let actx = null;
+function audio() {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (actx && actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function plopp() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime, o = a.createOscillator(), g = a.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(500, t); o.frequency.exponentialRampToValueAtTime(1100, t + 0.12);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t + 0.22);
+}
+const sounds = {};
+let playing = null;
+function loadSound(id) {
+  const a = audio(); if (!a || sounds[id]) return;
+  sounds[id] = fetch('sounds/' + id + '.mp3').then(r => r.arrayBuffer())
+    .then(b => new Promise((ok, err) => a.decodeAudioData(b, ok, err))).catch(() => null);
+}
+function stopSound() {
+  if (playing) { try { playing.stop(); } catch (e) {} playing = null; }
+}
+async function playSound(id) {
+  const a = audio(); if (!a) return 0;
+  loadSound(id);
+  const buf = await sounds[id]; if (!buf) return 0;
+  stopSound();
+  const src = a.createBufferSource(); src.buffer = buf; src.connect(a.destination); src.start();
+  playing = src; src.onended = () => { if (playing === src) playing = null; };
+  return buf.duration;
+}
+function say(text) {
+  try {
+    if (!('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'sv-SE'; u.rate = 0.9; u.pitch = 1.2;
+    const sv = speechSynthesis.getVoices().find(v => v.lang && v.lang.toLowerCase().startsWith('sv'));
+    if (sv) u.voice = sv;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+
+// ---------- Konfetti ----------
+const cv = document.getElementById('confetti'), cx = cv.getContext('2d');
+let parts = [], confettiOn = false;
+function confetti() {
+  cv.width = innerWidth; cv.height = innerHeight;
+  const colors = ['#e53935', '#fdd835', '#43a047', '#1e88e5', '#fb8c00', '#ab47bc'];
+  for (let i = 0; i < 160; i++) parts.push({
+    x: Math.random() * cv.width, y: -20 - Math.random() * cv.height * 0.5,
+    vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 4, s: 8 + Math.random() * 8,
+    r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, c: colors[i % colors.length] });
+  if (!confettiOn) { confettiOn = true; requestAnimationFrame(tick); }
+}
+function tick() {
+  cx.clearRect(0, 0, cv.width, cv.height);
+  parts.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.r += p.vr;
+    cx.save(); cx.translate(p.x, p.y); cx.rotate(p.r); cx.fillStyle = p.c; cx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); cx.restore(); });
+  parts = parts.filter(p => p.y < cv.height + 30);
+  if (parts.length) requestAnimationFrame(tick); else { confettiOn = false; cx.clearRect(0, 0, cv.width, cv.height); }
+}
+
+// ---------- Startsida ----------
+const done = new Set(JSON.parse(localStorage.getItem('dinopussel-klara') || '[]'));
+const cards = document.getElementById('cards');
+function renderHome() {
+  cards.innerHTML = '';
+  DINOS.forEach((v, i) => {
+    const b = document.createElement('button');
+    b.className = 'card' + (done.has(v.id) ? ' done' : '');
+    b.setAttribute('aria-label', v.name);
+    b.innerHTML = useSvg(v.id) + '<span class="star"><svg viewBox=\"0 0 24 24\" width=\"40\" height=\"40\"><path d=\"m12 2 3 7h7l-5.5 4.5 2 7.5L12 17l-6.5 4 2-7.5L2 9h7z\" fill=\"#fdd835\" stroke=\"#f57f17\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/></svg></span>';
+    b.addEventListener('click', () => { audio(); say(v.name); startPuzzle(i); });
+    cards.appendChild(b);
+  });
+}
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+}
+
+// ---------- Pussel ----------
+const game = document.getElementById('game'), board = document.getElementById('board');
+const doneBar = document.getElementById('doneBar');
+const slotsEl = board.querySelector('.slots');
+let N = +localStorage.getItem('dinopussel-bitar') || 2;
+function renderMode() {
+  const grid = n => `<svg viewBox="0 0 ${n * 10} ${n * 10}">${[...Array(n * n).keys()].map(i =>
+    `<rect x="${(i % n) * 10 + 1}" y="${Math.floor(i / n) * 10 + 1}" width="8" height="8" rx="1.5" fill="${['#e53935', '#1e88e5', '#fdd835', '#43a047'][i % 4]}"/>`).join('')}</svg>`;
+  const m = document.getElementById('mode');
+  m.innerHTML = '';
+  [2, 3].forEach(n => {
+    const b = document.createElement('button');
+    b.className = n === N ? 'on' : '';
+    b.setAttribute('aria-label', n * n + ' bitar');
+    b.innerHTML = grid(n);
+    b.addEventListener('click', () => { N = n; localStorage.setItem('dinopussel-bitar', n); renderMode(); });
+    m.appendChild(b);
+  });
+}
+let current = 0, pieces = [], L = null, finished = false, gen = 0;
+
+function startPuzzle(i) {
+  current = i; finished = false; gen++;
+  stopSound();
+  const v = DINOS[i];
+  pieces.forEach(p => p.el.remove());
+  board.classList.remove('complete', 'celebrate');
+  doneBar.classList.remove('show');
+  board.querySelector('.guide').innerHTML = useSvg(v.id);
+  board.style.setProperty('--n', N);
+  slotsEl.innerHTML = '<div></div>'.repeat(N * N);
+  const size = 300 / N;
+  const order = [...Array(N * N).keys()].sort(() => Math.random() - 0.5);
+  pieces = [...Array(N * N).keys()].map((n, k) => {
+    const r = Math.floor(n / N), c = n % N;
+    const el = document.createElement('div');
+    el.className = 'piece';
+    el.innerHTML = useSvg(v.id, `${c * size} ${r * size} ${size} ${size}`);
+    game.appendChild(el);
+    const p = { el, r, c, placed: false, tray: order[k], tilt: (Math.random() - 0.5) * 16 };
+    el.addEventListener('pointerdown', e => grab(e, p));
+    return p;
+  });
+  show('game');
+  layout();
+}
+
+function layout() {
+  const W = innerWidth, H = innerHeight, top = 84, pad = 16;
+  let S, bx, by, tray;
+  if (W >= H) {
+    S = Math.min(H - top - pad, W * 0.52);
+    bx = pad + Math.max(0, (W * 0.55 - S) / 2); by = top + Math.max(0, (H - top - pad - S) / 2);
+    tray = { x: bx + S + pad * 2, y: top - 40, w: W - (bx + S + pad * 3), h: H - top + 40 - pad };
+  } else {
+    S = Math.min(W - pad * 2, (H - top) * 0.55);
+    bx = (W - S) / 2; by = top;
+    tray = { x: pad, y: by + S + pad * 1.5, w: W - pad * 2, h: H - (by + S + pad * 2.5) };
+  }
+  const p = S / N, count = N * N;
+  let best = { k: 0 };
+  for (let cols = 1; cols <= count; cols++) {
+    const rows = Math.ceil(count / cols), cell = Math.min(tray.w / cols, tray.h / rows);
+    const k = Math.min(1, (cell * 0.86) / p);
+    if (k > best.k) best = { k, cols, rows, cell };
+  }
+  L = { S, bx, by, p, tray, ...best };
+  Object.assign(board.style, { left: bx + 'px', top: by + 'px', width: S + 'px', height: S + 'px' });
+  pieces.forEach(pc => { pc.el.style.width = pc.el.style.height = p + 'px'; place(pc); });
+}
+
+function trayPos(pc) {
+  const { tray, cols, rows, cell, p } = L;
+  const col = pc.tray % cols, row = Math.floor(pc.tray / cols);
+  const gx = tray.x + (tray.w - cols * cell) / 2, gy = tray.y + (tray.h - rows * cell) / 2;
+  return { x: gx + col * cell + cell / 2 - p / 2, y: gy + row * cell + cell / 2 - p / 2 };
+}
+function place(pc) {
+  if (pc.placed) {
+    pc.el.style.left = L.bx + pc.c * L.p + 'px'; pc.el.style.top = L.by + pc.r * L.p + 'px';
+    pc.el.style.transform = 'none';
+  } else {
+    const t = trayPos(pc);
+    pc.el.style.left = t.x + 'px'; pc.el.style.top = t.y + 'px';
+    pc.el.style.transform = `scale(${L.k}) rotate(${pc.tilt}deg)`;
+  }
+}
+
+let drag = null;
+function grab(e, pc) {
+  if (pc.placed || finished || drag) return;
+  e.preventDefault(); audio();
+  pc.el.setPointerCapture(e.pointerId);
+  pc.el.classList.add('dragging');
+  pc.el.style.transform = 'scale(1.08)';
+  drag = { pc, id: e.pointerId };
+  const t = slotsEl.children[pc.r * N + pc.c], size = 300 / N;
+  t.classList.add('target');
+  t.innerHTML = useSvg(DINOS[current].id, `${pc.c * size} ${pc.r * size} ${size} ${size}`);
+  board.classList.add('focus');
+  move(e);
+  pc.el.addEventListener('pointermove', move);
+  pc.el.addEventListener('pointerup', drop);
+  pc.el.addEventListener('pointercancel', drop);
+  pc.el.addEventListener('lostpointercapture', drop);
+}
+function move(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  drag.pc.el.style.left = e.clientX - L.p / 2 + 'px';
+  drag.pc.el.style.top = e.clientY - L.p * 0.6 + 'px';
+}
+function drop(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const pc = drag.pc, el = pc.el;
+  el.removeEventListener('pointermove', move);
+  el.removeEventListener('pointerup', drop);
+  el.removeEventListener('pointercancel', drop);
+  el.removeEventListener('lostpointercapture', drop);
+  el.classList.remove('dragging');
+  [...slotsEl.children].forEach(d => { d.classList.remove('target'); d.innerHTML = ''; });
+  board.classList.remove('focus');
+  drag = null;
+  const cxp = parseFloat(el.style.left) + L.p / 2, cyp = parseFloat(el.style.top) + L.p / 2;
+  const tx = L.bx + pc.c * L.p + L.p / 2, ty = L.by + pc.r * L.p + L.p / 2;
+  if (Math.hypot(cxp - tx, cyp - ty) < L.p * 0.6) {
+    pc.placed = true; el.classList.add('placed'); plopp();
+  }
+  place(pc);
+  if (pieces.every(p => p.placed)) win();
+}
+
+function win() {
+  finished = true;
+  const v = DINOS[current], g = gen;
+  done.add(v.id); localStorage.setItem('dinopussel-klara', JSON.stringify([...done]));
+  setTimeout(() => {
+    if (g !== gen) return;
+    board.classList.add('complete');
+    confetti();
+    setTimeout(() => { if (finished && DINOS[current] === v) say('Bra jobbat! ' + v.name + '!'); }, 500);
+    pieces.forEach(p => p.el.classList.add('hidden'));
+    board.classList.add('celebrate');
+    setTimeout(() => { if (g === gen) doneBar.classList.add('show'); }, 1200);
+  }, 380);
+}
+
+board.addEventListener('click', () => { if (finished) say(DINOS[current].name); });
+document.getElementById('homeBtn').addEventListener('click', () => { stopSound(); if ('speechSynthesis' in window) speechSynthesis.cancel(); renderHome(); show('home'); });
+document.getElementById('againBtn').addEventListener('click', () => startPuzzle(current));
+document.getElementById('nextBtn').addEventListener('click', () => { const n = (current + 1) % DINOS.length; say(DINOS[n].name); startPuzzle(n); });
+addEventListener('resize', () => { if (pieces.length) layout(); });
+document.addEventListener('gesturestart', e => e.preventDefault());
+if ('speechSynthesis' in window) speechSynthesis.getVoices();
+renderMode();
+renderHome();
+</script>
+</body>
+</html>
